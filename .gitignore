@@ -1,0 +1,16 @@
+# Binaries
+releases/
+gg
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Internal docs (not for public repo)
+docs/
