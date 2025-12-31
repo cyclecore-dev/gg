@@ -14,3 +14,6 @@ Thumbs.db
 
 # Internal docs (not for public repo)
 docs/
+
+# Claude Code settings (contains local paths/permissions)
+.claude/
