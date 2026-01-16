@@ -1,26 +1,36 @@
-# gg — the agent-native package manager
+# gg — the 2-letter agent-native git client
 
 gg turns npm, Homebrew, and GitHub into instant MCPs.
-One word = 5 tools chained. 98% token savings.
+One word = 5 tools chained. 98% token savings. Multi-provider support.
 
 ## Install
 
 ```bash
-curl -L gg.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh
 ```
 
 ## Quick Start
 
 ```bash
-gg npm prettier       # npm package → MCP (~18 tokens)
-gg brew ffmpeg        # Homebrew → MCP (~22 tokens)
-gg cool webdev        # eslint+prettier+jest+playwright
-gg chain run mytools  # execute saved chains
+gg init                 # configure provider & API key
+gg npm prettier         # npm package → MCP (~18 tokens)
+gg brew ffmpeg          # Homebrew → MCP (~22 tokens)
+gg cool webdev          # eslint+prettier+jest+playwright
+gg edit main.go         # AI-assisted file editing
 ```
 
 ## Commands
 
-### Package Manager (v0.7)
+### Core (v0.9.1)
+
+| Command | Description | Tokens |
+|---------|-------------|--------|
+| `gg init` | Configure provider/API key | - |
+| `gg maaza` | Status + setup check | - |
+| `gg version` | Show version | - |
+| `gg stats` | Usage statistics | - |
+
+### Package Manager
 
 | Command | Description | Tokens |
 |---------|-------------|--------|
@@ -38,11 +48,17 @@ gg chain run mytools  # execute saved chains
 |---------|-------------|--------|
 | `gg .` | Current repo → MCP | ~12 |
 | `gg user/repo` | Any GitHub repo → MCP | ~18 |
-| `gg ask "..."` | Generate code → PR | variable |
-| `gg approve` | Merge PR | ~8 |
 | `gg pr <number>` | View/manage PR | ~22 |
 | `gg run <cmd>` | Sandbox execution | ~15 |
-| `gg stats` | Usage statistics | - |
+
+### AI Tools
+
+| Command | Description |
+|---------|-------------|
+| `gg edit <file>` | AI-assisted file editing |
+| `gg prompts` | Manage saved prompts |
+| `gg prompts add <name>` | Save a prompt |
+| `gg prompts run <name>` | Execute saved prompt |
 
 ### Toolbelts (`gg cool`)
 
@@ -53,6 +69,18 @@ gg chain run mytools  # execute saved chains
 | `sec` | semgrep, snyk, trivy |
 | `data` | duckdb, jq, csvtojson |
 | `devops` | terraform, kubectl, docker |
+
+## Multi-Provider Support
+
+gg works with multiple AI providers:
+
+| Provider | API Key Format | Models |
+|----------|----------------|--------|
+| Anthropic | `sk-ant-*` | claude-sonnet-4, claude-opus-4 |
+| OpenAI | `sk-*` | gpt-4o, gpt-4-turbo |
+| Ollama | (local) | llama3, codellama, etc. |
+
+Configure via `gg init` or set in `~/.config/gg/config.toml`.
 
 ## Why gg?
 
@@ -65,6 +93,9 @@ gg chain run mytools  # execute saved chains
 ## Examples
 
 ```bash
+# Configure (first time)
+gg init
+
 # Chain npm + brew tools
 gg chain npm:prettier npm:eslint brew:jq
 gg chain --save webformat npm:prettier npm:eslint
@@ -73,21 +104,29 @@ gg chain run webformat
 # Auto-install missing Homebrew formula
 gg brew -i ffmpeg
 
-# View cache
-gg cache status
+# AI-assisted editing
+gg edit src/main.go
 
-# Use a curated toolbelt
-gg cool webdev
+# Saved prompts
+gg prompts add review "Review this code for bugs"
+gg prompts run review
 ```
 
 ## Build from Source
 
 ```bash
-git clone https://github.com/ggdotdev/gg
+git clone https://github.com/cyclecore-dev/gg
 cd gg && go build -o gg
 ./gg version
 ```
 
 ## License
 
-MIT — [github.com/ggdotdev/gg](https://github.com/ggdotdev/gg)
+MIT — [github.com/cyclecore-dev/gg](https://github.com/cyclecore-dev/gg)
+
+---
+
+gg is independent open-source software.
+Default providers and backends are configurable via `~/.gg/config.toml`.
+Built by the CycleCore team — privacy-first AI infrastructure.
+No warranty. Use at your own risk.

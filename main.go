@@ -1,5 +1,5 @@
-// gg v0.2.0 — the 2-letter agent-native git client
-// December 3, 2025
+// gg v0.9.1 — the 2-letter agent-native git client
+// January 2026 — v1.0-ready
 package main
 
 import (
@@ -20,7 +20,30 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const version = "0.7.1"
+const version = "0.9.2"
+
+// Token costs (approximate)
+const (
+	TokenCostNPM  = 18
+	TokenCostBrew = 22
+	TokenCostGit  = 12
+	TokenCostBase = 20
+)
+
+// Supported providers
+const (
+	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
+	ProviderOllama    = "ollama"
+)
+
+// SecretsData holds encrypted API keys
+type SecretsData struct {
+	APIKey        string `toml:"api_key"`         // Primary API key (any provider)
+	ClaudeAPIKey  string `toml:"claude_api_key"`  // Legacy: kept for backwards compat
+	MaazaAPIKey   string `toml:"maaza_api_key"`
+	ProLicenseKey string `toml:"pro_license_key"`
+}
 
 // Config represents the gg configuration
 type Config struct {
@@ -29,6 +52,11 @@ type Config struct {
 		Tier    string `toml:"tier"`
 	} `toml:"gg"`
 	API struct {
+		Provider    string  `toml:"provider"`    // anthropic, openai, ollama
+		Model       string  `toml:"model"`       // Model name
+		Temperature float64 `toml:"temperature"`
+		Endpoint    string  `toml:"endpoint"`    // Custom endpoint (for Ollama)
+		// Legacy fields for backwards compat
 		ClaudeModel       string  `toml:"claude_model"`
 		ClaudeTemperature float64 `toml:"claude_temperature"`
 		MaazaModel        string  `toml:"maaza_model"`
@@ -36,11 +64,7 @@ type Config struct {
 	GitHub struct {
 		DefaultBranch string `toml:"default_branch"`
 	} `toml:"github"`
-	Secrets struct {
-		ClaudeAPIKey  string `toml:"claude_api_key"`
-		MaazaAPIKey   string `toml:"maaza_api_key"`
-		ProLicenseKey string `toml:"pro_license_key"`
-	} `toml:"keys"`
+	Secrets SecretsData `toml:"keys"`
 }
 
 func main() {
@@ -54,6 +78,10 @@ func main() {
 	switch cmd {
 	case "version", "--version", "-v":
 		fmt.Printf("gg v%s\n", version)
+	case "help", "--help", "-h":
+		printUsage()
+	case "init":
+		initConfig()
 	case "config":
 		handleConfig()
 	case "maaza":
@@ -61,15 +89,19 @@ func main() {
 	case ".":
 		handleCurrentRepo()
 	case "ask":
-		handleAskV2()
+		handleAsk()
 	case "approve":
-		handleApproveV2()
+		handleApprove()
 	case "pr":
 		handlePR()
 	case "run":
 		handleRun()
 	case "stats":
 		handleStats()
+	case "edit":
+		handleEdit()
+	case "prompts":
+		handlePrompts()
 	case "npm":
 		handleNPM()
 	case "brew":
@@ -91,40 +123,48 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("gg — the 2-letter agent-native git client")
+	fmt.Printf("gg v%s — the 2-letter agent-native git client\n", version)
 	fmt.Println()
-	fmt.Println("commands:")
-	fmt.Println("  gg config init     # Set up configuration")
-	fmt.Println("  gg maaza           # Maaza model MCP endpoint")
-	fmt.Println("  gg .               # Current repo → code-execution MCP")
-	fmt.Println("  gg user/repo       # Any GitHub repo → MCP")
-	fmt.Println("  gg ask \"...\"       # Generate code → open PR (streams output)")
-	fmt.Println("  gg approve         # Merge the PR")
-	fmt.Println("  gg pr <number>     # View/manage specific PR")
-	fmt.Println("  gg run <cmd>       # Run command in sandbox, return result")
-	fmt.Println("  gg stats           # Show usage statistics")
+	fmt.Println("setup:")
+	fmt.Println("  gg init              Configure provider & API key")
+	fmt.Println("  gg maaza             Status and setup check")
 	fmt.Println()
-	fmt.Println("package manager (v0.7):")
-	fmt.Println("  gg npm <pkg>       # npm package → MCP endpoint")
-	fmt.Println("  gg brew [-i] <f>   # Homebrew formula → MCP (-i auto-installs)")
-	fmt.Println("  gg chain <tools>   # Chain multiple MCPs together")
-	fmt.Println("  gg chain run <n>   # Execute a saved chain")
-	fmt.Println("  gg cool <toolbelt> # Curated tool collections (webdev, media, sec, data)")
-	fmt.Println("  gg cache status    # Show cache size")
-	fmt.Println("  gg cache clean     # Prune old cache entries")
+	fmt.Println("ai tools:")
+	fmt.Println("  gg ask \"...\"         Generate code → PR (Pro)")
+	fmt.Println("  gg edit <file>       AI-assisted file editing")
+	fmt.Println("  gg prompts           Manage saved prompts")
 	fmt.Println()
-	fmt.Println("install: curl -L gg.sh | sh")
-	fmt.Println("more: github.com/ggdotdev/gg")
+	fmt.Println("git:")
+	fmt.Println("  gg .                 Current repo → MCP")
+	fmt.Println("  gg user/repo         Any GitHub repo → MCP")
+	fmt.Println("  gg pr <number>       View/manage specific PR")
+	fmt.Println("  gg approve           Merge the latest PR")
+	fmt.Println("  gg run <cmd>         Run command in sandbox")
+	fmt.Println()
+	fmt.Println("package manager:")
+	fmt.Println("  gg npm <pkg>         npm package → MCP (~18 tokens)")
+	fmt.Println("  gg brew [-i] <f>     Homebrew formula → MCP (~22 tokens)")
+	fmt.Println("  gg chain <tools>     Chain multiple MCPs")
+	fmt.Println("  gg cool <toolbelt>   Curated toolbelts (webdev, media, sec, data)")
+	fmt.Println("  gg cache status      Show cache size")
+	fmt.Println()
+	fmt.Println("other:")
+	fmt.Println("  gg stats             Usage statistics")
+	fmt.Println("  gg version           Show version")
+	fmt.Println("  gg help              Show this help")
+	fmt.Println()
+	fmt.Println("install: curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh")
+	fmt.Println("docs:    github.com/cyclecore-dev/gg")
 }
 
 func handleMaaza() {
-	fmt.Println("🐱 Maaza Orchestrator v1.2")
+	fmt.Println("Maaza Orchestrator")
+	fmt.Println("Edge-optimized Nano Language Model")
 	fmt.Println()
-	fmt.Println("Model: 9.6M parameters")
-	fmt.Println("Benchmarks: 62.9% adversarial score")
-	fmt.Println()
-	fmt.Println("Code-execution MCP — 98.7% token reduction")
+	fmt.Println("Code-execution MCP — optimized for token efficiency")
 	fmt.Println("Compatible with: Claude Desktop, Cursor, any MCP client")
+	fmt.Println()
+	fmt.Println("Configure: ~/.gg/config.toml")
 }
 
 func handleCurrentRepo() {
@@ -132,19 +172,19 @@ func handleCurrentRepo() {
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	output, err := cmd.Output()
 	if err != nil {
-		fmt.Println("❌ Not in a git repo or no remote configured")
+		fmt.Println("Not in a git repo or no remote configured")
 		return
 	}
 
 	url := strings.TrimSpace(string(output))
 	repo := parseGitHubURL(url)
-	
+
 	if repo == "" {
-		fmt.Println("❌ Could not parse GitHub repo from:", url)
+		fmt.Println("Could not parse GitHub repo from:", url)
 		return
 	}
 
-	fmt.Printf("📦 Current repo: %s\n", repo)
+	fmt.Printf("Current repo: %s\n", repo)
 	fmt.Println()
 	fmt.Println("MCP endpoint:")
 	fmt.Printf("  https://api.github.com/repos/%s\n", repo)
@@ -153,39 +193,12 @@ func handleCurrentRepo() {
 }
 
 func handleRepo(repo string) {
-	fmt.Printf("📦 Repo: %s\n", repo)
+	fmt.Printf("Repo: %s\n", repo)
 	fmt.Println()
 	fmt.Println("MCP endpoint:")
 	fmt.Printf("  https://api.github.com/repos/%s\n", repo)
 	fmt.Println()
 	fmt.Println("Code-execution MCP active")
-}
-
-func handleAsk() {
-	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg ask \"your prompt here\"")
-		return
-	}
-
-	prompt := strings.Join(os.Args[2:], " ")
-	
-	fmt.Println("🤖 Maaza v1.2 is thinking...")
-	fmt.Printf("   Prompt: %s\n", prompt)
-	fmt.Println()
-	fmt.Println("⚠️  Full 'gg ask' implementation coming in v0.2")
-	fmt.Println("   For now, use with Claude Desktop + GitHub MCP server")
-	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Println("  1. Claude will write code using code-execution MCP")
-	fmt.Println("  2. Review the generated PR")
-	fmt.Println("  3. Run: gg approve")
-}
-
-func handleApprove() {
-	fmt.Println("✓ Approving PR...")
-	fmt.Println()
-	fmt.Println("⚠️  Full 'gg approve' implementation coming in v0.2")
-	fmt.Println("   For now, merge PRs via GitHub UI or: gh pr merge")
 }
 
 func parseGitHubURL(url string) string {
@@ -203,6 +216,14 @@ func parseGitHubURL(url string) string {
 	// Handle SSH URLs (git@github.com:user/repo)
 	if strings.HasPrefix(url, "git@github.com:") {
 		return strings.TrimPrefix(url, "git@github.com:")
+	}
+
+	// Handle custom SSH aliases (git@github-alias:user/repo)
+	if strings.HasPrefix(url, "git@") && strings.Contains(url, ":") {
+		parts := strings.SplitN(url, ":", 2)
+		if len(parts) == 2 {
+			return parts[1]
+		}
 	}
 
 	return ""
@@ -227,7 +248,7 @@ func handleConfig() {
 }
 
 func initConfig() {
-	fmt.Println("Welcome to gg v0.2!")
+	fmt.Printf("Welcome to gg v%s!\n", version)
 	fmt.Println()
 	fmt.Println("Setting up your configuration...")
 	fmt.Println()
@@ -254,16 +275,57 @@ func initConfig() {
 		fatalError("Failed to save encryption key", err)
 	}
 
-	// Prompt for API keys
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Enter your Claude API key (from console.anthropic.com):\n> ")
-	claudeKey, _ := reader.ReadString('\n')
-	claudeKey = strings.TrimSpace(claudeKey)
+	// Provider selection
+	fmt.Println("Select your AI provider:")
+	fmt.Println("  1. Anthropic (Claude)")
+	fmt.Println("  2. OpenAI (GPT-4)")
+	fmt.Println("  3. Ollama (local)")
+	fmt.Print("\nChoice [1]: ")
+	providerChoice, _ := reader.ReadString('\n')
+	providerChoice = strings.TrimSpace(providerChoice)
 
-	fmt.Print("\nEnter your Maaza API key (optional, press Enter to skip):\n> ")
-	maazaKey, _ := reader.ReadString('\n')
-	maazaKey = strings.TrimSpace(maazaKey)
+	var provider, model, endpoint string
+	switch providerChoice {
+	case "2":
+		provider = ProviderOpenAI
+		model = "gpt-4o"
+		fmt.Print("\nEnter your OpenAI API key:\n> ")
+	case "3":
+		provider = ProviderOllama
+		model = "llama3.2"
+		endpoint = "http://localhost:11434"
+		fmt.Print("\nOllama endpoint [http://localhost:11434]:\n> ")
+		endpointInput, _ := reader.ReadString('\n')
+		endpointInput = strings.TrimSpace(endpointInput)
+		if endpointInput != "" {
+			endpoint = endpointInput
+		}
+		fmt.Println("\nOllama doesn't require an API key.")
+		fmt.Print("Enter API key anyway (optional, press Enter to skip):\n> ")
+	default:
+		provider = ProviderAnthropic
+		model = "claude-sonnet-4-20250514"
+		fmt.Print("\nEnter your Anthropic API key:\n> ")
+	}
+
+	apiKey, _ := reader.ReadString('\n')
+	apiKey = strings.TrimSpace(apiKey)
+
+	// Auto-detect provider from key if not Ollama
+	if provider != ProviderOllama && apiKey != "" {
+		detected := detectProvider(apiKey)
+		if detected != "" && detected != provider {
+			fmt.Printf("\nNote: API key looks like %s, using that provider.\n", detected)
+			provider = detected
+			if provider == ProviderOpenAI {
+				model = "gpt-4o"
+			} else if provider == ProviderAnthropic {
+				model = "claude-sonnet-4-20250514"
+			}
+		}
+	}
 
 	fmt.Print("\nEnter your Pro license key (optional, press Enter to skip):\n> ")
 	proKey, _ := reader.ReadString('\n')
@@ -276,9 +338,10 @@ func initConfig() {
 	if proKey != "" && strings.HasPrefix(proKey, "gg_pro_") {
 		cfg.GG.Tier = "pro"
 	}
-	cfg.API.ClaudeModel = "claude-sonnet-4-5-20250929"
-	cfg.API.ClaudeTemperature = 0.7
-	cfg.API.MaazaModel = "maaza-slm-360m"
+	cfg.API.Provider = provider
+	cfg.API.Model = model
+	cfg.API.Temperature = 0.7
+	cfg.API.Endpoint = endpoint
 	cfg.GitHub.DefaultBranch = "main"
 
 	// Save plain config
@@ -294,20 +357,73 @@ func initConfig() {
 	}
 
 	// Encrypt and save secrets
-	cfg.Secrets.ClaudeAPIKey = claudeKey
-	cfg.Secrets.MaazaAPIKey = maazaKey
-	cfg.Secrets.ProLicenseKey = proKey
+	secrets := SecretsData{
+		APIKey:        apiKey,
+		ProLicenseKey: proKey,
+	}
 
 	secretsPath := filepath.Join(ggDir, "secrets")
-	if err := encryptSecrets(cfg.Secrets, identity, secretsPath); err != nil {
+	if err := encryptSecrets(secrets, identity, secretsPath); err != nil {
 		fatalError("Failed to encrypt secrets", err)
 	}
 
 	fmt.Println()
-	fmt.Println("✓ Configuration saved to ~/.gg/config.toml")
-	fmt.Println("✓ Secrets encrypted and saved to ~/.gg/secrets")
+	fmt.Printf("Provider: %s\n", provider)
+	fmt.Printf("Model: %s\n", model)
+	fmt.Println("Configuration saved to ~/.gg/config.toml")
+	fmt.Println("Secrets encrypted and saved to ~/.gg/secrets")
 	fmt.Println()
 	fmt.Println("Run 'gg ask \"your prompt\"' to get started!")
+}
+
+// detectProvider auto-detects the provider from API key format
+func detectProvider(apiKey string) string {
+	if strings.HasPrefix(apiKey, "sk-ant-") {
+		return ProviderAnthropic
+	}
+	if strings.HasPrefix(apiKey, "sk-") {
+		return ProviderOpenAI
+	}
+	return ""
+}
+
+// getEffectiveConfig returns provider/model/key handling legacy configs
+func getEffectiveConfig(cfg *Config) (provider, model, endpoint, apiKey string) {
+	// New config format takes precedence
+	if cfg.API.Provider != "" {
+		provider = cfg.API.Provider
+		model = cfg.API.Model
+		endpoint = cfg.API.Endpoint
+		apiKey = cfg.Secrets.APIKey
+	}
+
+	// Fall back to legacy config
+	if provider == "" {
+		provider = ProviderAnthropic
+	}
+	if model == "" {
+		if cfg.API.ClaudeModel != "" {
+			model = cfg.API.ClaudeModel
+		} else {
+			model = "claude-sonnet-4-20250514"
+		}
+	}
+	if apiKey == "" && cfg.Secrets.ClaudeAPIKey != "" {
+		apiKey = cfg.Secrets.ClaudeAPIKey
+	}
+
+	// Auto-detect from key
+	if apiKey != "" && provider == ProviderAnthropic {
+		detected := detectProvider(apiKey)
+		if detected == ProviderOpenAI {
+			provider = ProviderOpenAI
+			if model == "" || strings.HasPrefix(model, "claude") {
+				model = "gpt-4o"
+			}
+		}
+	}
+
+	return
 }
 
 func loadConfig() (*Config, error) {
@@ -345,21 +461,11 @@ func loadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
-func encryptSecrets(secrets struct {
-	ClaudeAPIKey  string `toml:"claude_api_key"`
-	MaazaAPIKey   string `toml:"maaza_api_key"`
-	ProLicenseKey string `toml:"pro_license_key"`
-}, identity *age.X25519Identity, path string) error {
-
-	// Create temporary struct for TOML encoding
+func encryptSecrets(secrets SecretsData, identity *age.X25519Identity, path string) error {
+	// Create wrapper struct for TOML encoding
 	data := struct {
-		Keys struct {
-			ClaudeAPIKey  string `toml:"claude_api_key"`
-			MaazaAPIKey   string `toml:"maaza_api_key"`
-			ProLicenseKey string `toml:"pro_license_key"`
-		} `toml:"keys"`
-	}{}
-	data.Keys = secrets
+		Keys SecretsData `toml:"keys"`
+	}{Keys: secrets}
 
 	// Encode to TOML
 	var buf strings.Builder
@@ -386,12 +492,7 @@ func encryptSecrets(secrets struct {
 	return w.Close()
 }
 
-func decryptSecrets(secrets *struct {
-	ClaudeAPIKey  string `toml:"claude_api_key"`
-	MaazaAPIKey   string `toml:"maaza_api_key"`
-	ProLicenseKey string `toml:"pro_license_key"`
-}, identity *age.X25519Identity, path string) error {
-
+func decryptSecrets(secrets *SecretsData, identity *age.X25519Identity, path string) error {
 	in, err := os.Open(path)
 	if err != nil {
 		return err
@@ -410,11 +511,7 @@ func decryptSecrets(secrets *struct {
 
 	// Decode TOML
 	var temp struct {
-		Keys struct {
-			ClaudeAPIKey  string `toml:"claude_api_key"`
-			MaazaAPIKey   string `toml:"maaza_api_key"`
-			ProLicenseKey string `toml:"pro_license_key"`
-		} `toml:"keys"`
+		Keys SecretsData `toml:"keys"`
 	}
 
 	if err := toml.Unmarshal(data, &temp); err != nil {
@@ -446,7 +543,7 @@ func ensureGitHubAuth() error {
 		return nil
 	}
 
-	fmt.Println("❌ GitHub authentication required")
+	fmt.Println("GitHub authentication required")
 	fmt.Println()
 	fmt.Println("Run: gh auth login")
 	fmt.Println("Or install gh CLI: https://cli.github.com")
@@ -455,12 +552,12 @@ func ensureGitHubAuth() error {
 }
 
 // ============================================================================
-// NEW V0.2 COMMANDS
+// ASK COMMAND
 // ============================================================================
 
-func handleAskV2() {
+func handleAsk() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg ask \"your prompt here\"")
+		fmt.Println("Usage: gg ask \"your prompt here\"")
 		return
 	}
 
@@ -479,7 +576,7 @@ func handleAskV2() {
 
 	prompt := strings.Join(promptParts, " ")
 	if prompt == "" {
-		fmt.Println("❌ No prompt provided")
+		fmt.Println("No prompt provided")
 		return
 	}
 
@@ -491,21 +588,21 @@ func handleAskV2() {
 
 	// Check Pro tier
 	if !proMode && !checkProTier(cfg) {
-		fmt.Println("🤖 Analyzing request...")
+		fmt.Println("Analyzing request...")
 		fmt.Println()
 		fmt.Println("Implementation plan:")
 		fmt.Println("  1. Analyze repository structure")
 		fmt.Println("  2. Generate code changes")
 		fmt.Println("  3. Create pull request")
 		fmt.Println()
-		fmt.Println("╔══════════════════════════════════════╗")
-		fmt.Println("║   gg Pro required for this feature  ║")
-		fmt.Println("╚══════════════════════════════════════╝")
+		fmt.Println("+--------------------------------------+")
+		fmt.Println("|   gg Pro required for this feature  |")
+		fmt.Println("+--------------------------------------+")
 		fmt.Println()
 		fmt.Println("Pro features:")
-		fmt.Println("  • Full Claude-powered code generation")
-		fmt.Println("  • Unlimited gg ask commands")
-		fmt.Println("  • Priority API access")
+		fmt.Println("  - Full AI-powered code generation")
+		fmt.Println("  - Unlimited gg ask commands")
+		fmt.Println("  - Priority API access")
 		fmt.Println()
 		fmt.Println("Upgrade: https://ggdotdev.com/pro ($15/month)")
 		fmt.Println("Or use: gg ask \"...\" --pro")
@@ -527,13 +624,13 @@ func handleAskV2() {
 		fatalError("Not in a git repository", nil)
 	}
 
-	fmt.Println("🤖 Generating code with Claude Sonnet 4.5...")
+	fmt.Printf("Generating code for %s...\n", repoName)
 	fmt.Println()
 
-	// Call Claude API with streaming
-	response, err := callClaudeAPIStreaming(cfg, prompt, repoName)
+	// Call API with streaming
+	response, err := callAPIStreaming(cfg, prompt, repoName)
 	if err != nil {
-		fatalError("Claude API error", sanitizeError(err))
+		fatalError("API error", sanitizeError(err))
 	}
 
 	// Track ask usage
@@ -542,8 +639,8 @@ func handleAskV2() {
 	// Parse code blocks
 	files := parseCodeBlocks(response)
 	if len(files) == 0 {
-		fmt.Println("⚠️  No code blocks found in response")
-		fmt.Println("Claude's response:")
+		fmt.Println("No code blocks found in response")
+		fmt.Println("Response:")
 		fmt.Println(response)
 		return
 	}
@@ -559,10 +656,10 @@ func handleAskV2() {
 			os.MkdirAll(dir, 0755)
 		}
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			fmt.Printf("⚠️  Failed to write %s: %v\n", path, err)
+			fmt.Printf("Failed to write %s: %v\n", path, err)
 			continue
 		}
-		fmt.Printf("✓ %s\n", path)
+		fmt.Printf("+ %s\n", path)
 	}
 
 	// Commit and push
@@ -575,19 +672,19 @@ func handleAskV2() {
 	prCmd := exec.Command("gh", "pr", "create", "--title", commitMsg, "--body", fmt.Sprintf("Generated by gg ask:\n\n%s", prompt))
 	prOutput, err := prCmd.Output()
 	if err != nil {
-		fmt.Println("⚠️  Failed to create PR. Create manually:")
+		fmt.Println("Failed to create PR. Create manually:")
 		fmt.Printf("   Branch: %s\n", branchName)
 		return
 	}
 
 	prURL := strings.TrimSpace(string(prOutput))
 	fmt.Println()
-	fmt.Printf("✓ PR created: %s\n", prURL)
+	fmt.Printf("PR created: %s\n", prURL)
 	fmt.Println()
 	fmt.Println("Next: gg approve")
 }
 
-func handleApproveV2() {
+func handleApprove() {
 	if err := ensureGitHubAuth(); err != nil {
 		return
 	}
@@ -639,7 +736,251 @@ func handleApproveV2() {
 	}
 
 	fmt.Println()
-	fmt.Println("✓ PR merged successfully!")
+	fmt.Println("PR merged successfully!")
+}
+
+// ============================================================================
+// EDIT COMMAND
+// ============================================================================
+
+func handleEdit() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: gg edit <file> [instruction]")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  gg edit main.go                    # Interactive edit")
+		fmt.Println("  gg edit main.go \"add error handling\"")
+		fmt.Println("  gg edit src/*.ts \"add types\"       # Multiple files")
+		return
+	}
+
+	filePath := os.Args[2]
+	var instruction string
+	if len(os.Args) > 3 {
+		instruction = strings.Join(os.Args[3:], " ")
+	}
+
+	// Check if file exists
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		fatalError("Cannot read file", err)
+	}
+
+	// Get instruction if not provided
+	if instruction == "" {
+		fmt.Printf("Editing: %s (%d bytes)\n", filePath, len(content))
+		fmt.Print("\nWhat changes do you want? > ")
+		reader := bufio.NewReader(os.Stdin)
+		instruction, _ = reader.ReadString('\n')
+		instruction = strings.TrimSpace(instruction)
+		if instruction == "" {
+			fmt.Println("No instruction provided, exiting")
+			return
+		}
+	}
+
+	// Load config
+	cfg, err := loadConfig()
+	if err != nil {
+		fatalError("Config error. Run: gg config init", err)
+	}
+
+	provider, model, endpoint, apiKey := getEffectiveConfig(cfg)
+	if provider != ProviderOllama && apiKey == "" {
+		fatalError("API key not configured. Run: gg config init", nil)
+	}
+
+	// Create edit prompt
+	editPrompt := fmt.Sprintf("Edit this file according to the instruction.\n\n"+
+		"FILE: %s\n"+
+		"```\n%s\n```\n\n"+
+		"INSTRUCTION: %s\n\n"+
+		"Return ONLY the complete edited file content, no explanations. "+
+		"Wrap in ```language:filename code block.", filePath, string(content), instruction)
+
+	systemPrompt := "You are a code editor. Return only the edited file content in a code block."
+
+	fmt.Printf("Editing %s with %s/%s...\n\n", filePath, provider, model)
+
+	var response string
+	switch provider {
+	case ProviderOpenAI:
+		response, err = callOpenAIStreaming(apiKey, model, systemPrompt, editPrompt)
+	case ProviderOllama:
+		response, err = callOllamaStreaming(endpoint, model, systemPrompt, editPrompt)
+	default:
+		response, err = callAnthropicStreaming(apiKey, model, systemPrompt, editPrompt, cfg.API.Temperature)
+	}
+
+	if err != nil {
+		fatalError("API error", sanitizeError(err))
+	}
+
+	// Parse the response for code blocks
+	files := parseCodeBlocks(response)
+	if len(files) == 0 {
+		// Try to extract content between ``` markers
+		re := regexp.MustCompile("```[a-z]*\n([\\s\\S]*?)```")
+		matches := re.FindStringSubmatch(response)
+		if len(matches) >= 2 {
+			files[filePath] = matches[1]
+		}
+	}
+
+	if len(files) == 0 {
+		fmt.Println("\nNo code block found in response. Raw response:")
+		fmt.Println(response)
+		return
+	}
+
+	// Get the edited content
+	var newContent string
+	for _, c := range files {
+		newContent = c
+		break
+	}
+
+	// Show diff summary
+	oldLines := strings.Count(string(content), "\n")
+	newLines := strings.Count(newContent, "\n")
+	fmt.Printf("\nChanges: %d lines -> %d lines\n", oldLines, newLines)
+
+	// Confirm
+	fmt.Print("\nApply changes? [Y/n]: ")
+	reader := bufio.NewReader(os.Stdin)
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(strings.ToLower(confirm))
+
+	if confirm != "" && confirm != "y" {
+		fmt.Println("Cancelled")
+		return
+	}
+
+	// Write the file
+	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+		fatalError("Failed to write file", err)
+	}
+
+	fmt.Printf("Updated: %s\n", filePath)
+}
+
+// ============================================================================
+// PROMPTS COMMAND
+// ============================================================================
+
+func handlePrompts() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: gg prompts <command>")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  list               # List saved prompts")
+		fmt.Println("  add <name> \"...\"   # Save a prompt")
+		fmt.Println("  run <name>         # Run a saved prompt with gg ask")
+		fmt.Println("  delete <name>      # Delete a prompt")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  gg prompts add refactor \"refactor this code for clarity\"")
+		fmt.Println("  gg prompts run refactor")
+		return
+	}
+
+	subCmd := os.Args[2]
+
+	switch subCmd {
+	case "list", "ls":
+		listPrompts()
+	case "add", "save":
+		if len(os.Args) < 5 {
+			fmt.Println("Usage: gg prompts add <name> \"prompt text\"")
+			return
+		}
+		name := os.Args[3]
+		promptText := strings.Join(os.Args[4:], " ")
+		savePrompt(name, promptText)
+	case "run", "use":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: gg prompts run <name>")
+			return
+		}
+		usePrompt(os.Args[3])
+	case "delete", "rm":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: gg prompts delete <name>")
+			return
+		}
+		deletePrompt(os.Args[3])
+	default:
+		// Try to run it as a prompt name
+		usePrompt(subCmd)
+	}
+}
+
+func getPromptsDir() string {
+	return filepath.Join(getGGDir(), "prompts")
+}
+
+func listPrompts() {
+	promptsDir := getPromptsDir()
+	files, err := os.ReadDir(promptsDir)
+	if err != nil || len(files) == 0 {
+		fmt.Println("No saved prompts")
+		fmt.Println("Save one: gg prompts save <name> \"prompt text\"")
+		return
+	}
+
+	fmt.Println("Saved prompts:")
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".txt") {
+			name := strings.TrimSuffix(f.Name(), ".txt")
+			content, _ := os.ReadFile(filepath.Join(promptsDir, f.Name()))
+			preview := string(content)
+			if len(preview) > 50 {
+				preview = preview[:50] + "..."
+			}
+			fmt.Printf("  - %s: %s\n", name, preview)
+		}
+	}
+}
+
+func savePrompt(name, text string) {
+	promptsDir := getPromptsDir()
+	os.MkdirAll(promptsDir, 0755)
+
+	path := filepath.Join(promptsDir, name+".txt")
+	if err := os.WriteFile(path, []byte(text), 0644); err != nil {
+		fatalError("Failed to save prompt", err)
+	}
+	fmt.Printf("Saved prompt '%s'\n", name)
+}
+
+func usePrompt(name string) {
+	promptsDir := getPromptsDir()
+	path := filepath.Join(promptsDir, name+".txt")
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("Prompt not found: %s\n", name)
+		fmt.Println("Run 'gg prompts list' to see saved prompts")
+		return
+	}
+
+	promptText := string(content)
+	fmt.Printf("Using prompt '%s': %s\n\n", name, promptText)
+
+	// Inject prompt into handleAsk by setting os.Args
+	os.Args = []string{"gg", "ask", promptText}
+	handleAsk()
+}
+
+func deletePrompt(name string) {
+	promptsDir := getPromptsDir()
+	path := filepath.Join(promptsDir, name+".txt")
+
+	if err := os.Remove(path); err != nil {
+		fmt.Printf("Prompt not found: %s\n", name)
+		return
+	}
+	fmt.Printf("Deleted prompt '%s'\n", name)
 }
 
 // ============================================================================
@@ -660,79 +1001,6 @@ func getCurrentRepo() string {
 func checkProTier(cfg *Config) bool {
 	return cfg.Secrets.ProLicenseKey != "" &&
 		strings.HasPrefix(cfg.Secrets.ProLicenseKey, "gg_pro_")
-}
-
-func callClaudeAPI(cfg *Config, prompt, repo string) (string, error) {
-	if cfg.Secrets.ClaudeAPIKey == "" {
-		return "", fmt.Errorf("Claude API key not configured")
-	}
-
-	systemPrompt := fmt.Sprintf("You are a code generation assistant for the repository: %s\n\n"+
-		"Generate clean, production-ready code based on the user's request.\n"+
-		"Format code blocks as:\n"+
-		"```language:path/to/file\n"+
-		"code here\n"+
-		"```\n\n"+
-		"Be concise and only generate the requested code.", repo)
-
-	requestBody := map[string]interface{}{
-		"model":       cfg.API.ClaudeModel,
-		"max_tokens":  4096,
-		"system":      systemPrompt,
-		"temperature": cfg.API.ClaudeTemperature,
-		"messages": []map[string]interface{}{
-			{
-				"role": "user",
-				"content": prompt,
-			},
-		},
-	}
-
-	jsonData, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", cfg.Secrets.ClaudeAPIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var response struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", err
-	}
-
-	var text strings.Builder
-	for _, block := range response.Content {
-		if block.Type == "text" {
-			text.WriteString(block.Text)
-		}
-	}
-
-	return text.String(), nil
 }
 
 func parseCodeBlocks(response string) map[string]string {
@@ -762,27 +1030,41 @@ func truncate(s string, max int) string {
 
 func sanitizeError(err error) error {
 	msg := err.Error()
-	msg = regexp.MustCompile(`sk-ant-[a-zA-Z0-9-]+`).ReplaceAllString(msg, "sk-ant-***")
+	// Sanitize various API key formats
+	msg = regexp.MustCompile(`sk-ant-[a-zA-Z0-9-]+`).ReplaceAllString(msg, "sk-***")
+	msg = regexp.MustCompile(`sk-[a-zA-Z0-9]+`).ReplaceAllString(msg, "sk-***")
 	msg = regexp.MustCompile(`mcpb_[a-zA-Z0-9]+`).ReplaceAllString(msg, "mcpb_***")
 	msg = regexp.MustCompile(`gg_pro_[a-zA-Z0-9]+`).ReplaceAllString(msg, "gg_pro_***")
 	return fmt.Errorf("%s", msg)
 }
 
 func fatalError(msg string, err error) {
-	fmt.Fprintf(os.Stderr, "❌ %s\n", msg)
+	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "   Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  %v\n", err)
 	}
 	os.Exit(1)
 }
 
+func getHomeDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return os.Getenv("HOME")
+	}
+	return homeDir
+}
+
+func getGGDir() string {
+	return filepath.Join(getHomeDir(), ".gg")
+}
+
 // ============================================================================
-// V0.6 COMMANDS: PR, RUN, STATS
+// PR, RUN, STATS
 // ============================================================================
 
 func handlePR() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg pr <number>")
+		fmt.Println("Usage: gg pr <number>")
 		return
 	}
 
@@ -823,7 +1105,7 @@ func handlePR() {
 
 	fmt.Printf("PR #%d: %s\n", pr.Number, pr.Title)
 	fmt.Printf("Author: %s | State: %s\n", pr.Author.Login, pr.State)
-	fmt.Printf("Branch: %s → %s\n", pr.HeadRefName, pr.BaseRefName)
+	fmt.Printf("Branch: %s -> %s\n", pr.HeadRefName, pr.BaseRefName)
 	fmt.Printf("Changes: +%d -%d (%d files)\n", pr.Additions, pr.Deletions, pr.ChangedFiles)
 	fmt.Println()
 
@@ -857,7 +1139,7 @@ func handlePR() {
 			if err := mergeCmd.Run(); err != nil {
 				fatalError("Failed to merge PR", err)
 			}
-			fmt.Println("✓ PR merged!")
+			fmt.Println("PR merged!")
 		case "d":
 			diffCmd := exec.Command("gh", "pr", "diff", prNumber)
 			diffCmd.Stdout = os.Stdout
@@ -870,7 +1152,7 @@ func handlePR() {
 			if err := closeCmd.Run(); err != nil {
 				fatalError("Failed to close PR", err)
 			}
-			fmt.Println("✓ PR closed")
+			fmt.Println("PR closed")
 		default:
 			fmt.Println("Exiting")
 		}
@@ -879,7 +1161,7 @@ func handlePR() {
 
 func handleRun() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg run <command>")
+		fmt.Println("Usage: gg run <command>")
 		fmt.Println("Example: gg run npm test")
 		return
 	}
@@ -887,7 +1169,7 @@ func handleRun() {
 	cmdArgs := os.Args[2:]
 	cmdStr := strings.Join(cmdArgs, " ")
 
-	fmt.Printf("🔄 Running: %s\n", cmdStr)
+	fmt.Printf("Running: %s\n", cmdStr)
 	fmt.Println()
 
 	// Execute command with timeout
@@ -905,9 +1187,9 @@ func handleRun() {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
 		}
-		fmt.Printf("❌ Exit code: %d (%.2fs)\n", exitCode, elapsed.Seconds())
+		fmt.Printf("Exit code: %d (%.2fs)\n", exitCode, elapsed.Seconds())
 	} else {
-		fmt.Printf("✓ Success (%.2fs)\n", elapsed.Seconds())
+		fmt.Printf("Success (%.2fs)\n", elapsed.Seconds())
 	}
 
 	// Track usage
@@ -915,15 +1197,11 @@ func handleRun() {
 }
 
 func handleStats() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fatalError("Failed to get home directory", err)
-	}
-
+	homeDir := getHomeDir()
 	statsPath := filepath.Join(homeDir, ".gg", "stats.json")
 	data, err := os.ReadFile(statsPath)
 	if err != nil {
-		fmt.Println("📊 Usage Statistics")
+		fmt.Println("Usage Statistics")
 		fmt.Println()
 		fmt.Println("No usage data yet. Run some commands first!")
 		return
@@ -934,15 +1212,13 @@ func handleStats() {
 		fatalError("Failed to parse stats", err)
 	}
 
-	fmt.Println("📊 Usage Statistics")
+	fmt.Println("Usage Statistics")
 	fmt.Println()
 	fmt.Printf("Month: %s\n", stats.Month)
 	fmt.Printf("Total asks: %d\n", stats.AskCount)
 	fmt.Printf("Total runs: %d\n", stats.RunCount)
 	fmt.Printf("Total tokens: %d (input: %d, output: %d)\n", stats.TotalTokens, stats.InputTokens, stats.OutputTokens)
 	fmt.Printf("Estimated cost: $%.4f\n", stats.EstimatedCost)
-	fmt.Println()
-	fmt.Println("Token pricing: Claude Sonnet 4.5 ($3/M input, $15/M output)")
 }
 
 // UsageStats tracks monthly usage
@@ -957,7 +1233,7 @@ type UsageStats struct {
 }
 
 func trackCommandUsage(cmdType, detail string, elapsed time.Duration) {
-	homeDir, _ := os.UserHomeDir()
+	homeDir := getHomeDir()
 	statsPath := filepath.Join(homeDir, ".gg", "stats.json")
 
 	var stats UsageStats
@@ -983,7 +1259,7 @@ func trackCommandUsage(cmdType, detail string, elapsed time.Duration) {
 }
 
 func trackTokenUsage(inputTokens, outputTokens int64) {
-	homeDir, _ := os.UserHomeDir()
+	homeDir := getHomeDir()
 	statsPath := filepath.Join(homeDir, ".gg", "stats.json")
 
 	var stats UsageStats
@@ -1001,7 +1277,7 @@ func trackTokenUsage(inputTokens, outputTokens int64) {
 	stats.OutputTokens += outputTokens
 	stats.TotalTokens = stats.InputTokens + stats.OutputTokens
 
-	// Claude Sonnet 4.5: $3/M input, $15/M output
+	// Approximate cost (varies by provider)
 	stats.EstimatedCost = float64(stats.InputTokens)/1000000*3 + float64(stats.OutputTokens)/1000000*15
 
 	outData, _ := json.MarshalIndent(stats, "", "  ")
@@ -1009,12 +1285,14 @@ func trackTokenUsage(inputTokens, outputTokens int64) {
 }
 
 // ============================================================================
-// STREAMING CLAUDE API
+// MULTI-PROVIDER API
 // ============================================================================
 
-func callClaudeAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
-	if cfg.Secrets.ClaudeAPIKey == "" {
-		return "", fmt.Errorf("Claude API key not configured")
+func callAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
+	provider, model, endpoint, apiKey := getEffectiveConfig(cfg)
+
+	if provider != ProviderOllama && apiKey == "" {
+		return "", fmt.Errorf("API key not configured. Run: gg config init")
 	}
 
 	systemPrompt := fmt.Sprintf("You are a code generation assistant for the repository: %s\n\n"+
@@ -1025,17 +1303,29 @@ func callClaudeAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
 		"```\n\n"+
 		"Be concise and only generate the requested code.", repo)
 
+	switch provider {
+	case ProviderOpenAI:
+		return callOpenAIStreaming(apiKey, model, systemPrompt, prompt)
+	case ProviderOllama:
+		return callOllamaStreaming(endpoint, model, systemPrompt, prompt)
+	default:
+		return callAnthropicStreaming(apiKey, model, systemPrompt, prompt, cfg.API.Temperature)
+	}
+}
+
+func callAnthropicStreaming(apiKey, model, systemPrompt, prompt string, temperature float64) (string, error) {
+	if temperature == 0 {
+		temperature = 0.7
+	}
+
 	requestBody := map[string]interface{}{
-		"model":       cfg.API.ClaudeModel,
+		"model":       model,
 		"max_tokens":  4096,
 		"stream":      true,
 		"system":      systemPrompt,
-		"temperature": cfg.API.ClaudeTemperature,
+		"temperature": temperature,
 		"messages": []map[string]interface{}{
-			{
-				"role":    "user",
-				"content": prompt,
-			},
+			{"role": "user", "content": prompt},
 		},
 	}
 
@@ -1050,7 +1340,7 @@ func callClaudeAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", cfg.Secrets.ClaudeAPIKey)
+	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	client := &http.Client{Timeout: 300 * time.Second}
@@ -1118,9 +1408,8 @@ func callClaudeAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
 		}
 	}
 
-	fmt.Println() // Newline after streaming
+	fmt.Println()
 
-	// Track token usage
 	if inputTokens > 0 || outputTokens > 0 {
 		trackTokenUsage(inputTokens, outputTokens)
 	}
@@ -1128,12 +1417,185 @@ func callClaudeAPIStreaming(cfg *Config, prompt, repo string) (string, error) {
 	return fullResponse.String(), nil
 }
 
-// ==================== v0.7.0: Package Manager Layer ====================
+func callOpenAIStreaming(apiKey, model, systemPrompt, prompt string) (string, error) {
+	requestBody := map[string]interface{}{
+		"model":  model,
+		"stream": true,
+		"messages": []map[string]interface{}{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": prompt},
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse SSE stream
+	var fullResponse strings.Builder
+	var totalTokens int64
+	reader := bufio.NewReader(resp.Body)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fullResponse.String(), err
+		}
+
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage struct {
+				TotalTokens int64 `json:"total_tokens"`
+			} `json:"usage"`
+		}
+
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		if len(event.Choices) > 0 && event.Choices[0].Delta.Content != "" {
+			fmt.Print(event.Choices[0].Delta.Content)
+			fullResponse.WriteString(event.Choices[0].Delta.Content)
+		}
+
+		if event.Usage.TotalTokens > 0 {
+			totalTokens = event.Usage.TotalTokens
+		}
+	}
+
+	fmt.Println()
+
+	if totalTokens > 0 {
+		// Estimate input/output split (rough 30/70)
+		trackTokenUsage(totalTokens*3/10, totalTokens*7/10)
+	}
+
+	return fullResponse.String(), nil
+}
+
+func callOllamaStreaming(endpoint, model, systemPrompt, prompt string) (string, error) {
+	if endpoint == "" {
+		endpoint = "http://localhost:11434"
+	}
+
+	requestBody := map[string]interface{}{
+		"model":  model,
+		"stream": true,
+		"messages": []map[string]interface{}{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": prompt},
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", endpoint+"/api/chat", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 600 * time.Second} // Ollama can be slow
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Ollama connection failed: %v (is Ollama running?)", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Ollama error (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Ollama returns newline-delimited JSON
+	var fullResponse strings.Builder
+	reader := bufio.NewReader(resp.Body)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fullResponse.String(), err
+		}
+
+		var event struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Done bool `json:"done"`
+		}
+
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+
+		if event.Message.Content != "" {
+			fmt.Print(event.Message.Content)
+			fullResponse.WriteString(event.Message.Content)
+		}
+
+		if event.Done {
+			break
+		}
+	}
+
+	fmt.Println()
+
+	return fullResponse.String(), nil
+}
+
+// ============================================================================
+// PACKAGE MANAGER LAYER
+// ============================================================================
 
 // handleNPM fetches npm package info and displays MCP endpoint
 func handleNPM() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg npm <package> [--fn <function>]")
+		fmt.Println("Usage: gg npm <package> [--fn <function>]")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  gg npm prettier")
@@ -1144,7 +1606,7 @@ func handleNPM() {
 	pkg := os.Args[2]
 
 	// Check local cache first
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".gg", "cache", "npm")
+	cacheDir := filepath.Join(getGGDir(), "cache", "npm")
 	cachePath := filepath.Join(cacheDir, pkg+".json")
 
 	var pkgInfo map[string]interface{}
@@ -1152,30 +1614,30 @@ func handleNPM() {
 	if data, err := os.ReadFile(cachePath); err == nil {
 		// Cache hit
 		json.Unmarshal(data, &pkgInfo)
-		fmt.Printf("📦 %s (cached)\n", pkg)
+		fmt.Printf("%s (cached)\n", pkg)
 	} else {
 		// Fetch from npm registry
-		fmt.Printf("📦 Fetching %s from npm...\n", pkg)
+		fmt.Printf("Fetching %s from npm...\n", pkg)
 		url := fmt.Sprintf("https://registry.npmjs.org/%s/latest", pkg)
 		resp, err := http.Get(url)
 		if err != nil {
-			fmt.Printf("❌ Failed to fetch package: %v\n", err)
+			fmt.Printf("Failed to fetch package: %v\n", err)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode == 404 {
-			fmt.Printf("❌ Package not found: %s\n", pkg)
+			fmt.Printf("Package not found: %s\n", pkg)
 			return
 		}
 
 		if resp.StatusCode != 200 {
-			fmt.Printf("❌ npm registry error: %d\n", resp.StatusCode)
+			fmt.Printf("npm registry error: %d\n", resp.StatusCode)
 			return
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&pkgInfo); err != nil {
-			fmt.Printf("❌ Failed to parse response: %v\n", err)
+			fmt.Printf("Failed to parse response: %v\n", err)
 			return
 		}
 
@@ -1187,10 +1649,10 @@ func handleNPM() {
 
 	// Display MCP format
 	name, _ := pkgInfo["name"].(string)
-	version, _ := pkgInfo["version"].(string)
+	pkgVersion, _ := pkgInfo["version"].(string)
 	desc, _ := pkgInfo["description"].(string)
 
-	fmt.Printf("\n📦 %s@%s\n", name, version)
+	fmt.Printf("\n%s@%s\n", name, pkgVersion)
 	if desc != "" {
 		fmt.Printf("   %s\n", desc)
 	}
@@ -1199,18 +1661,18 @@ func handleNPM() {
 	for i, arg := range os.Args {
 		if arg == "--fn" && i+1 < len(os.Args) {
 			fnName := os.Args[i+1]
-			fmt.Printf("\n🎯 Function: %s\n", fnName)
+			fmt.Printf("\nFunction: %s\n", fnName)
 		}
 	}
 
-	fmt.Printf("\n🔌 MCP Endpoint: npm:%s\n", name)
-	fmt.Printf("   Token cost: ~18\n")
+	fmt.Printf("\nMCP Endpoint: npm:%s\n", name)
+	fmt.Printf("Token cost: ~%d\n", TokenCostNPM)
 }
 
 // handleBrew fetches Homebrew formula info and displays MCP endpoint
 func handleBrew() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg brew [-i] <formula>")
+		fmt.Println("Usage: gg brew [-i] <formula>")
 		fmt.Println()
 		fmt.Println("Options:")
 		fmt.Println("  -i  Auto-install formula if not installed")
@@ -1233,12 +1695,12 @@ func handleBrew() {
 	}
 
 	if formula == "" {
-		fmt.Println("❌ No formula specified")
+		fmt.Println("No formula specified")
 		return
 	}
 
 	// Check local cache first
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".gg", "cache", "brew")
+	cacheDir := filepath.Join(getGGDir(), "cache", "brew")
 	cachePath := filepath.Join(cacheDir, formula+".json")
 
 	var info map[string]interface{}
@@ -1262,24 +1724,24 @@ func handleBrew() {
 		// Check cache
 		if data, err := os.ReadFile(cachePath); err == nil {
 			json.Unmarshal(data, &info)
-			fmt.Printf("🍺 %s (cached)\n", formula)
+			fmt.Printf("%s (cached)\n", formula)
 		} else {
-			fmt.Printf("🍺 Fetching %s from Homebrew...\n", formula)
+			fmt.Printf("Fetching %s from Homebrew...\n", formula)
 			url := fmt.Sprintf("https://formulae.brew.sh/api/formula/%s.json", formula)
 			resp, err := http.Get(url)
 			if err != nil {
-				fmt.Printf("❌ Failed to fetch formula: %v\n", err)
+				fmt.Printf("Failed to fetch formula: %v\n", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode == 404 {
-				fmt.Printf("❌ Formula not found: %s\n", formula)
+				fmt.Printf("Formula not found: %s\n", formula)
 				return
 			}
 
 			if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-				fmt.Printf("❌ Failed to parse response: %v\n", err)
+				fmt.Printf("Failed to parse response: %v\n", err)
 				return
 			}
 
@@ -1294,31 +1756,31 @@ func handleBrew() {
 	name, _ := info["name"].(string)
 	desc, _ := info["desc"].(string)
 
-	var version string
+	var formulaVersion string
 	if versions, ok := info["versions"].(map[string]interface{}); ok {
-		version, _ = versions["stable"].(string)
+		formulaVersion, _ = versions["stable"].(string)
 	}
 
 	// Auto-install if -i flag and not installed
 	if !installed && autoInstall {
-		fmt.Printf("🍺 Installing %s...\n", formula)
+		fmt.Printf("Installing %s...\n", formula)
 		installCmd := exec.Command("brew", "install", formula)
 		installCmd.Stdout = os.Stdout
 		installCmd.Stderr = os.Stderr
 		if err := installCmd.Run(); err != nil {
-			fmt.Printf("❌ Install failed: %v\n", err)
+			fmt.Printf("Install failed: %v\n", err)
 			return
 		}
-		fmt.Printf("✅ %s installed\n", formula)
+		fmt.Printf("%s installed\n", formula)
 		installed = true
 	}
 
-	statusIcon := "✓ installed"
+	statusIcon := "installed"
 	if !installed {
 		statusIcon = "not installed"
 	}
 
-	fmt.Printf("\n🍺 %s@%s (%s)\n", name, version, statusIcon)
+	fmt.Printf("\n%s@%s (%s)\n", name, formulaVersion, statusIcon)
 	if desc != "" {
 		fmt.Printf("   %s\n", desc)
 	}
@@ -1328,17 +1790,17 @@ func handleBrew() {
 		fmt.Println("   Or use: gg brew -i", formula)
 	}
 
-	fmt.Printf("\n🔌 MCP Endpoint: brew:%s\n", formula)
-	fmt.Printf("   Token cost: ~22\n")
+	fmt.Printf("\nMCP Endpoint: brew:%s\n", formula)
+	fmt.Printf("Token cost: ~%d\n", TokenCostBrew)
 }
 
 // handleChain chains multiple MCP tools together
 func handleChain() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg chain <tool:pkg> [tool:pkg...]")
-		fmt.Println("         gg chain --save <name> <tool:pkg> [tool:pkg...]")
-		fmt.Println("         gg chain run <name>")
-		fmt.Println("         gg chain <saved-name>")
+		fmt.Println("Usage: gg chain <tool:pkg> [tool:pkg...]")
+		fmt.Println("       gg chain --save <name> <tool:pkg> [tool:pkg...]")
+		fmt.Println("       gg chain run <name>")
+		fmt.Println("       gg chain <saved-name>")
 		fmt.Println()
 		fmt.Println("Examples:")
 		fmt.Println("  gg chain npm:prettier npm:eslint brew:jq")
@@ -1352,7 +1814,7 @@ func handleChain() {
 	// Check for run subcommand
 	if args[0] == "run" {
 		if len(args) < 2 {
-			fmt.Println("❌ Usage: gg chain run <name>")
+			fmt.Println("Usage: gg chain run <name>")
 			return
 		}
 		runChain(args[1])
@@ -1362,13 +1824,13 @@ func handleChain() {
 	// Check for --save flag
 	if args[0] == "--save" {
 		if len(args) < 3 {
-			fmt.Println("❌ Usage: gg chain --save <name> <tool:pkg>...")
+			fmt.Println("Usage: gg chain --save <name> <tool:pkg>...")
 			return
 		}
 		chainName := args[1]
 		tools := args[2:]
 		saveChain(chainName, tools)
-		fmt.Printf("💾 Saved chain '%s' with %d tools\n", chainName, len(tools))
+		fmt.Printf("Saved chain '%s' with %d tools\n", chainName, len(tools))
 		return
 	}
 
@@ -1382,49 +1844,51 @@ func handleChain() {
 	if !strings.Contains(args[0], ":") {
 		tools := loadChain(args[0])
 		if tools != nil {
-			fmt.Printf("🔗 Running saved chain '%s'\n\n", args[0])
+			fmt.Printf("Running saved chain '%s'\n\n", args[0])
 			args = tools
 		} else {
-			fmt.Printf("❌ Unknown chain: %s\n", args[0])
-			fmt.Println("   Run 'gg chain --list' to see saved chains")
+			fmt.Printf("Unknown chain: %s\n", args[0])
+			fmt.Println("Run 'gg chain --list' to see saved chains")
 			return
 		}
 	}
 
-	fmt.Printf("🔗 Chained %d MCPs:\n", len(args))
+	fmt.Printf("Chained %d MCPs:\n", len(args))
 	totalCost := 0
 
 	for i, tool := range args {
 		parts := strings.SplitN(tool, ":", 2)
 		if len(parts) != 2 {
-			fmt.Printf("   %d. ❌ Invalid format: %s (expected type:name)\n", i+1, tool)
+			fmt.Printf("   %d. Invalid format: %s (expected type:name)\n", i+1, tool)
 			continue
 		}
 
 		toolType := parts[0]
 		toolName := parts[1]
 
-		var cost int
-		switch toolType {
-		case "npm":
-			cost = 18
-		case "brew":
-			cost = 22
-		case "git":
-			cost = 12
-		default:
-			cost = 20
-		}
-
+		cost := getTokenCost(toolType)
 		fmt.Printf("   %d. %s:%s (~%d tokens)\n", i+1, toolType, toolName, cost)
 		totalCost += cost
 	}
 
-	fmt.Printf("\n📊 Combined token cost: ~%d\n", totalCost)
+	fmt.Printf("\nCombined token cost: ~%d\n", totalCost)
+}
+
+func getTokenCost(toolType string) int {
+	switch toolType {
+	case "npm":
+		return TokenCostNPM
+	case "brew":
+		return TokenCostBrew
+	case "git":
+		return TokenCostGit
+	default:
+		return TokenCostBase
+	}
 }
 
 func saveChain(name string, tools []string) {
-	chainDir := filepath.Join(os.Getenv("HOME"), ".gg", "chains")
+	chainDir := filepath.Join(getGGDir(), "chains")
 	os.MkdirAll(chainDir, 0755)
 
 	data, _ := json.Marshal(tools)
@@ -1432,7 +1896,7 @@ func saveChain(name string, tools []string) {
 }
 
 func loadChain(name string) []string {
-	chainPath := filepath.Join(os.Getenv("HOME"), ".gg", "chains", name+".json")
+	chainPath := filepath.Join(getGGDir(), "chains", name+".json")
 	data, err := os.ReadFile(chainPath)
 	if err != nil {
 		return nil
@@ -1444,20 +1908,20 @@ func loadChain(name string) []string {
 }
 
 func listSavedChains() {
-	chainDir := filepath.Join(os.Getenv("HOME"), ".gg", "chains")
+	chainDir := filepath.Join(getGGDir(), "chains")
 	files, err := os.ReadDir(chainDir)
 	if err != nil || len(files) == 0 {
-		fmt.Println("📋 No saved chains")
-		fmt.Println("   Create one: gg chain --save <name> <tool:pkg>...")
+		fmt.Println("No saved chains")
+		fmt.Println("Create one: gg chain --save <name> <tool:pkg>...")
 		return
 	}
 
-	fmt.Println("📋 Saved chains:")
+	fmt.Println("Saved chains:")
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".json") {
 			name := strings.TrimSuffix(f.Name(), ".json")
 			tools := loadChain(name)
-			fmt.Printf("   • %s (%d tools)\n", name, len(tools))
+			fmt.Printf("   - %s (%d tools)\n", name, len(tools))
 		}
 	}
 }
@@ -1496,8 +1960,8 @@ var toolbelts = map[string][]string{
 // handleCool displays curated toolbelts
 func handleCool() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg cool <toolbelt>")
-		fmt.Println("         gg cool --list")
+		fmt.Println("Usage: gg cool <toolbelt>")
+		fmt.Println("       gg cool --list")
 		fmt.Println()
 		fmt.Println("Available toolbelts: webdev, media, sec, data, devops")
 		return
@@ -1506,13 +1970,13 @@ func handleCool() {
 	arg := os.Args[2]
 
 	if arg == "--list" {
-		fmt.Println("🧰 Available toolbelts:")
+		fmt.Println("Available toolbelts:")
 		fmt.Println()
 		for name, tools := range toolbelts {
 			fmt.Printf("   %s (%d tools)\n", name, len(tools))
 			for _, tool := range tools {
 				parts := strings.SplitN(tool, ":", 2)
-				fmt.Printf("      • %s (%s)\n", parts[1], parts[0])
+				fmt.Printf("      - %s (%s)\n", parts[1], parts[0])
 			}
 			fmt.Println()
 		}
@@ -1521,12 +1985,12 @@ func handleCool() {
 
 	tools, ok := toolbelts[arg]
 	if !ok {
-		fmt.Printf("❌ Unknown toolbelt: %s\n", arg)
-		fmt.Println("   Run 'gg cool --list' to see available toolbelts")
+		fmt.Printf("Unknown toolbelt: %s\n", arg)
+		fmt.Println("Run 'gg cool --list' to see available toolbelts")
 		return
 	}
 
-	fmt.Printf("🧰 Toolbelt: %s\n\n", arg)
+	fmt.Printf("Toolbelt: %s\n\n", arg)
 	totalCost := 0
 
 	for _, tool := range tools {
@@ -1534,40 +1998,31 @@ func handleCool() {
 		toolType := parts[0]
 		toolName := parts[1]
 
-		var cost int
-		switch toolType {
-		case "npm":
-			cost = 18
-		case "brew":
-			cost = 22
-		default:
-			cost = 20
-		}
-
-		fmt.Printf("   • %s (%s)\n", toolName, toolType)
+		cost := getTokenCost(toolType)
+		fmt.Printf("   - %s (%s)\n", toolName, toolType)
 		totalCost += cost
 	}
 
-	fmt.Printf("\n📊 Combined token cost: ~%d\n", totalCost)
-	fmt.Printf("\n💡 Chain all: gg chain %s\n", strings.Join(tools, " "))
+	fmt.Printf("\nCombined token cost: ~%d\n", totalCost)
+	fmt.Printf("\nChain all: gg chain %s\n", strings.Join(tools, " "))
 }
 
 // runChain executes all tools in a saved chain
 func runChain(name string) {
 	tools := loadChain(name)
 	if tools == nil {
-		fmt.Printf("❌ Chain not found: %s\n", name)
-		fmt.Println("   Run 'gg chain --list' to see saved chains")
+		fmt.Printf("Chain not found: %s\n", name)
+		fmt.Println("Run 'gg chain --list' to see saved chains")
 		return
 	}
 
-	fmt.Printf("🔗 Executing chain '%s'...\n\n", name)
+	fmt.Printf("Executing chain '%s'...\n\n", name)
 
 	success := 0
 	for i, tool := range tools {
 		parts := strings.SplitN(tool, ":", 2)
 		if len(parts) != 2 {
-			fmt.Printf("[%d/%d] ❌ Invalid: %s\n", i+1, len(tools), tool)
+			fmt.Printf("[%d/%d] Invalid: %s\n", i+1, len(tools), tool)
 			continue
 		}
 
@@ -1582,29 +2037,29 @@ func runChain(name string) {
 		case "brew":
 			runBrewCheck(toolName)
 		default:
-			fmt.Printf("   ⚠️  Unknown type: %s\n", toolType)
+			fmt.Printf("   Unknown type: %s\n", toolType)
 		}
 
 		success++
 		fmt.Println()
 	}
 
-	fmt.Printf("✅ Chain complete: %d/%d tools ready\n", success, len(tools))
+	fmt.Printf("Chain complete: %d/%d tools ready\n", success, len(tools))
 }
 
 func runNPMCheck(pkg string) {
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".gg", "cache", "npm")
+	cacheDir := filepath.Join(getGGDir(), "cache", "npm")
 	cachePath := filepath.Join(cacheDir, pkg+".json")
 
 	if _, err := os.ReadFile(cachePath); err == nil {
-		fmt.Printf("   📦 %s ✓ (cached)\n", pkg)
+		fmt.Printf("   %s (cached)\n", pkg)
 		return
 	}
 
 	url := fmt.Sprintf("https://registry.npmjs.org/%s/latest", pkg)
 	resp, err := http.Get(url)
 	if err != nil || resp.StatusCode != 200 {
-		fmt.Printf("   📦 %s ❌\n", pkg)
+		fmt.Printf("   %s (error)\n", pkg)
 		return
 	}
 	defer resp.Body.Close()
@@ -1616,23 +2071,23 @@ func runNPMCheck(pkg string) {
 	data, _ := json.Marshal(info)
 	os.WriteFile(cachePath, data, 0644)
 
-	version, _ := info["version"].(string)
-	fmt.Printf("   📦 %s@%s ✓\n", pkg, version)
+	pkgVersion, _ := info["version"].(string)
+	fmt.Printf("   %s@%s\n", pkg, pkgVersion)
 }
 
 func runBrewCheck(formula string) {
 	cmd := exec.Command("brew", "info", formula, "--json=v2")
 	if err := cmd.Run(); err == nil {
-		fmt.Printf("   🍺 %s ✓ installed\n", formula)
+		fmt.Printf("   %s (installed)\n", formula)
 	} else {
-		fmt.Printf("   🍺 %s (not installed)\n", formula)
+		fmt.Printf("   %s (not installed)\n", formula)
 	}
 }
 
 // handleCache manages the gg cache
 func handleCache() {
 	if len(os.Args) < 3 {
-		fmt.Println("❌ Usage: gg cache <status|clean>")
+		fmt.Println("Usage: gg cache <status|clean>")
 		fmt.Println()
 		fmt.Println("Commands:")
 		fmt.Println("  status  Show cache size and contents")
@@ -1640,7 +2095,7 @@ func handleCache() {
 		return
 	}
 
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".gg", "cache")
+	cacheDir := filepath.Join(getGGDir(), "cache")
 
 	switch os.Args[2] {
 	case "status":
@@ -1648,7 +2103,7 @@ func handleCache() {
 	case "clean":
 		cleanCache(cacheDir)
 	default:
-		fmt.Printf("❌ Unknown cache command: %s\n", os.Args[2])
+		fmt.Printf("Unknown cache command: %s\n", os.Args[2])
 	}
 }
 
@@ -1660,7 +2115,7 @@ func showCacheStatus(cacheDir string) {
 	npmCount := countFiles(filepath.Join(cacheDir, "npm"))
 	brewCount := countFiles(filepath.Join(cacheDir, "brew"))
 
-	fmt.Println("📦 Cache Status")
+	fmt.Println("Cache Status")
 	fmt.Println()
 	fmt.Printf("   Total: %s\n", formatSize(total))
 	fmt.Printf("   npm:   %s (%d packages)\n", formatSize(npmSize), npmCount)
@@ -1685,7 +2140,7 @@ func cleanCache(cacheDir string) {
 	})
 
 	if len(entries) == 0 {
-		fmt.Println("📦 Cache is empty")
+		fmt.Println("Cache is empty")
 		return
 	}
 
@@ -1703,9 +2158,9 @@ func cleanCache(cacheDir string) {
 	}
 
 	if removed == 0 {
-		fmt.Println("🧹 No old cache entries to clean")
+		fmt.Println("No old cache entries to clean")
 	} else {
-		fmt.Printf("🧹 Cleaned cache: %s freed (%d entries removed)\n", formatSize(freed), removed)
+		fmt.Printf("Cleaned cache: %s freed (%d entries removed)\n", formatSize(freed), removed)
 	}
 }
 
