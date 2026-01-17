@@ -1,7 +1,19 @@
 # gg — the 2-letter agent-native git client
 
-gg turns npm, Homebrew, and GitHub into instant MCPs.
-One word = 5 tools chained. 98% token savings. Multi-provider support.
+## Why gg?
+
+AI agents waste thousands of tokens every time they interact with git, npm, or brew because full schemas and metadata bloat the context. gg fixes that.
+
+It acts as a **deterministic command broker**: a thin, fast bridge that turns complex repo/package operations into tiny MCP calls (11–62 tokens instead of 1,800–2,400).
+
+Result: up to **96–98% token savings** on git/npm/brew tasks — so agents stay fast, cheap, and focused on what matters.
+
+gg is:
+- **Independent open-source** (MIT)
+- **Model-agnostic** (Anthropic, OpenAI, Ollama)
+- **Agent-first UX** (2 letters, chainable, Pro tier for unlimited ask)
+
+Built by the CycleCore team — privacy-first AI infrastructure.
 
 ## Install
 
@@ -21,7 +33,7 @@ gg edit main.go         # AI-assisted file editing
 
 ## Commands
 
-### Core (v0.9.1)
+### Core (v0.9.2)
 
 | Command | Description | Tokens |
 |---------|-------------|--------|
@@ -82,7 +94,7 @@ gg works with multiple AI providers:
 
 Configure via `gg init` or set in `~/.config/gg/config.toml`.
 
-## Why gg?
+## Token Savings
 
 | Scenario | Without gg | With gg | Savings |
 |----------|-----------|---------|---------|
@@ -119,6 +131,20 @@ git clone https://github.com/cyclecore-dev/gg
 cd gg && go build -o gg
 ./gg version
 ```
+
+## Free vs Pro
+
+| Feature | Free | Pro ($15/mo) |
+|---------|------|--------------|
+| Basic commands | gg ., gg maaza, gg npm, gg brew, etc. | All |
+| gg ask (AI code/PR gen) | Rate-limited | Unlimited + priority routing |
+| gg edit / gg prompts | Basic | Full AI-assisted editing |
+| Token savings | Full (96–98% on git/npm/brew) | Full + faster responses |
+| Private repos / advanced | — | Coming soon (SOC2, audit logs) |
+
+Pro unlocks unlimited `gg ask` and priority API routing for heavy agent use.
+
+No credit card needed to start — install and go.
 
 ## License
 
