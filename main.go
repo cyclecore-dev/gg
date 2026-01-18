@@ -20,7 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const version = "0.9.2"
+const version = "0.9.5"
 
 // Token costs (approximate)
 const (
@@ -662,9 +662,11 @@ func handleAsk() {
 		fmt.Printf("+ %s\n", path)
 	}
 
-	// Commit and push
+	// Commit and push (only stage generated files - DOCK-030 OPSEC)
 	commitMsg := fmt.Sprintf("gg ask: %s", truncate(prompt, 60))
-	exec.Command("git", "add", ".").Run()
+	for path := range files {
+		exec.Command("git", "add", path).Run()
+	}
 	exec.Command("git", "commit", "-m", commitMsg).Run()
 	exec.Command("git", "push", "-u", "origin", branchName).Run()
 
