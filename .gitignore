@@ -1,6 +1,7 @@
 # Binaries
 releases/
 gg
+gg_test
 *.exe
 
 # IDE
@@ -17,3 +18,24 @@ docs/
 
 # Claude Code settings (contains local paths/permissions)
 .claude/
+
+# Ops docs (internal sprint tracking)
+.ops/
+
+# Backend local state (wrangler dev artifacts)
+backend/.wrangler/
+backend/node_modules/
+
+# Test artifacts from gg ask
+AddFunction
+*.cs
+*.java
+*.kt
+count_lines.sh
+
+# Archive (old versions)
+archive/
+
+# Internal agent handoffs (CC-XX designations)
+CC-*
+*HANDOFF*
