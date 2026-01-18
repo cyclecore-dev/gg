@@ -33,7 +33,7 @@ gg edit main.go         # AI-assisted file editing
 
 ## Commands
 
-### Core (v0.9.2)
+### Core (v0.9.6)
 
 | Command | Description | Tokens |
 |---------|-------------|--------|
@@ -68,9 +68,37 @@ gg edit main.go         # AI-assisted file editing
 | Command | Description |
 |---------|-------------|
 | `gg edit <file>` | AI-assisted file editing |
+| `gg ask "prompt"` | Generate code + PR |
 | `gg prompts` | Manage saved prompts |
 | `gg prompts add <name>` | Save a prompt |
 | `gg prompts run <name>` | Execute saved prompt |
+
+### CLI2CLI: Agent-to-Agent Modes (v0.9.6)
+
+Minimal, pipeable CLI modes for agent-to-agent communication. Output is structured, <100 tokens per hop.
+
+| Command | Description | Tokens |
+|---------|-------------|--------|
+| `gg a2a .` | Current repo → minimal endpoint | ~5 |
+| `gg a2a ask "prompt"` | Structured response, no git ops | <100 |
+| `gg a2a plan "task"` | Numbered plan steps | <100 |
+| `gg a2a code "task"` | Raw code only, no prose | varies |
+
+**Pipe examples:**
+
+```bash
+# Agent chain: get repo → ask question
+gg a2a . | gg a2a ask "summarize this repo"
+
+# Plan then code
+gg a2a plan "auth system" | gg a2a code
+```
+
+**Design principles:**
+- <100 tokens per output (agents see minimal text)
+- YAML frontmatter for structured parsing
+- Pipeable stdout (Unix philosophy)
+- `--help` for discovery
 
 ### Toolbelts (`gg cool`)
 

@@ -20,7 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const version = "0.9.5"
+const version = "0.9.6"
 
 // Token costs (approximate)
 const (
@@ -112,6 +112,8 @@ func main() {
 		handleCool()
 	case "cache":
 		handleCache()
+	case "a2a":
+		handleA2A()
 	default:
 		if strings.Contains(cmd, "/") {
 			handleRepo(cmd)
@@ -131,6 +133,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("ai tools:")
 	fmt.Println("  gg ask \"...\"         Generate code → PR (Pro)")
+	fmt.Println("  gg a2a [mode]        Agent-to-agent CLI modes (CLI2CLI)")
 	fmt.Println("  gg edit <file>       AI-assisted file editing")
 	fmt.Println("  gg prompts           Manage saved prompts")
 	fmt.Println()
@@ -2199,4 +2202,356 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// CLI2CLI: Agent-to-Agent modes (DOCK-030 compliant)
+// Design: <100 tokens output, pipeable, parseable
+func handleA2A() {
+	args := os.Args[2:]
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		printA2AHelp()
+		return
+	}
+
+	mode := args[0]
+	modeArgs := args[1:]
+
+	switch mode {
+	case ".":
+		handleA2ADot()
+	case "ask":
+		handleA2AAsk(modeArgs)
+	case "plan":
+		handleA2APlan(modeArgs)
+	case "code":
+		handleA2ACode(modeArgs)
+	default:
+		fmt.Printf("a2a: unknown mode: %s\n", mode)
+		printA2AHelp()
+	}
+}
+
+func printA2AHelp() {
+	fmt.Println("gg a2a — Agent-to-Agent CLI modes (CLI2CLI)")
+	fmt.Println()
+	fmt.Println("Modes:")
+	fmt.Println("  .              Output MCP endpoint for current repo (<20 tokens)")
+	fmt.Println("  ask \"prompt\"   Structured response, no git ops (<100 tokens)")
+	fmt.Println("  plan \"task\"    Numbered plan steps, pipeable")
+	fmt.Println("  code \"task\"    Code blocks only, no prose")
+	fmt.Println()
+	fmt.Println("Pipe examples:")
+	fmt.Println("  gg a2a . | gg a2a ask \"summarize this repo\"")
+	fmt.Println("  gg a2a plan \"auth system\" | gg a2a code")
+	fmt.Println()
+	fmt.Println("Design: <100 tokens, pipeable stdout, agents see minimal text")
+}
+
+func handleA2ADot() {
+	// Minimal MCP endpoint output - agents "see" just this
+	repoName := getCurrentRepo()
+	if repoName == "" {
+		fmt.Println("error: not in a git repository")
+		return
+	}
+	// Output format: gg://<repo> (minimal, pipeable)
+	fmt.Printf("gg://%s\n", repoName)
+}
+
+func handleA2AAsk(args []string) {
+	if len(args) == 0 {
+		// Check for piped input
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			// Has piped input - read it
+			input, _ := io.ReadAll(os.Stdin)
+			args = []string{string(input)}
+		} else {
+			fmt.Println("error: no prompt provided")
+			fmt.Println("usage: gg a2a ask \"your prompt\"")
+			return
+		}
+	}
+
+	prompt := strings.Join(args, " ")
+
+	// Load config for API call
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+	provider, model, endpoint, apiKey := getEffectiveConfig(cfg)
+	if provider == "" || (provider != ProviderOllama && apiKey == "") {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+	_ = model // unused but available
+
+	// Get repo context if available
+	repoName := getCurrentRepo()
+	contextPrompt := prompt
+	if repoName != "" {
+		contextPrompt = fmt.Sprintf("[repo: %s] %s", repoName, prompt)
+	}
+
+	// Call API with minimal system prompt for structured output
+	systemPrompt := "Respond concisely in <100 tokens. Output structured text, no markdown formatting. Be direct."
+
+	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextPrompt)
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		return
+	}
+
+	// Output structured response (YAML-ish frontmatter + body)
+	fmt.Println("---")
+	fmt.Printf("mode: ask\n")
+	fmt.Printf("repo: %s\n", repoName)
+	fmt.Println("---")
+	fmt.Println(strings.TrimSpace(response))
+}
+
+func handleA2APlan(args []string) {
+	if len(args) == 0 {
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			input, _ := io.ReadAll(os.Stdin)
+			args = []string{string(input)}
+		} else {
+			fmt.Println("error: no task provided")
+			fmt.Println("usage: gg a2a plan \"your task\"")
+			return
+		}
+	}
+
+	task := strings.Join(args, " ")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+	provider, _, endpoint, apiKey := getEffectiveConfig(cfg)
+	if provider == "" || (provider != ProviderOllama && apiKey == "") {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+
+	repoName := getCurrentRepo()
+	contextTask := task
+	if repoName != "" {
+		contextTask = fmt.Sprintf("[repo: %s] %s", repoName, task)
+	}
+
+	systemPrompt := "Output a numbered plan (1. 2. 3. etc). Max 7 steps. No prose, just steps. Each step <15 words."
+
+	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextTask)
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		return
+	}
+
+	fmt.Println("---")
+	fmt.Printf("mode: plan\n")
+	fmt.Printf("task: %s\n", truncate(task, 50))
+	fmt.Println("---")
+	fmt.Println(strings.TrimSpace(response))
+}
+
+func handleA2ACode(args []string) {
+	if len(args) == 0 {
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			input, _ := io.ReadAll(os.Stdin)
+			args = []string{string(input)}
+		} else {
+			fmt.Println("error: no task provided")
+			fmt.Println("usage: gg a2a code \"your task\"")
+			return
+		}
+	}
+
+	task := strings.Join(args, " ")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+	provider, _, endpoint, apiKey := getEffectiveConfig(cfg)
+	if provider == "" || (provider != ProviderOllama && apiKey == "") {
+		fmt.Println("error: not configured")
+		fmt.Println("run: gg init")
+		return
+	}
+
+	repoName := getCurrentRepo()
+	contextTask := task
+	if repoName != "" {
+		contextTask = fmt.Sprintf("[repo: %s] %s", repoName, task)
+	}
+
+	systemPrompt := "Output ONLY code. No explanations, no markdown fences, just raw code. If multiple files, separate with: // FILE: filename.ext"
+
+	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextTask)
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		return
+	}
+
+	fmt.Println("---")
+	fmt.Printf("mode: code\n")
+	fmt.Println("---")
+	fmt.Println(strings.TrimSpace(response))
+}
+
+// callAPIWithSystem - simplified API call with custom system prompt
+func callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, userPrompt string) (string, error) {
+	switch provider {
+	case ProviderAnthropic:
+		return callAnthropicWithSystem(apiKey, systemPrompt, userPrompt)
+	case ProviderOllama:
+		return callOllamaWithSystem(endpoint, "", systemPrompt, userPrompt)
+	case ProviderOpenAI:
+		return callOpenAIWithSystem(apiKey, systemPrompt, userPrompt)
+	default:
+		return "", fmt.Errorf("unsupported provider: %s", provider)
+	}
+}
+
+func callAnthropicWithSystem(apiKey, systemPrompt, userPrompt string) (string, error) {
+	reqBody := map[string]interface{}{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 500,
+		"system":     systemPrompt,
+		"messages": []map[string]string{
+			{"role": "user", "content": userPrompt},
+		},
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if result.Error.Message != "" {
+		return "", fmt.Errorf("%s", result.Error.Message)
+	}
+
+	if len(result.Content) > 0 {
+		return result.Content[0].Text, nil
+	}
+	return "", fmt.Errorf("no response content")
+}
+
+func callOllamaWithSystem(endpoint, model, systemPrompt, userPrompt string) (string, error) {
+	if endpoint == "" {
+		endpoint = "http://localhost:11434"
+	}
+	if model == "" {
+		model = "llama3.2"
+	}
+
+	reqBody := map[string]interface{}{
+		"model":  model,
+		"prompt": userPrompt,
+		"system": systemPrompt,
+		"stream": false,
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	resp, err := http.Post(endpoint+"/api/generate", "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Response string `json:"response"`
+		Error    string `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if result.Error != "" {
+		return "", fmt.Errorf("%s", result.Error)
+	}
+
+	return result.Response, nil
+}
+
+func callOpenAIWithSystem(apiKey, systemPrompt, userPrompt string) (string, error) {
+	reqBody := map[string]interface{}{
+		"model": "gpt-4o",
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+		"max_tokens": 500,
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if result.Error.Message != "" {
+		return "", fmt.Errorf("%s", result.Error.Message)
+	}
+
+	if len(result.Choices) > 0 {
+		return result.Choices[0].Message.Content, nil
+	}
+	return "", fmt.Errorf("no response content")
 }
