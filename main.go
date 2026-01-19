@@ -665,7 +665,7 @@ func handleAsk() {
 		fmt.Printf("+ %s\n", path)
 	}
 
-	// Commit and push (only stage generated files - DOCK-030 OPSEC)
+	// Commit and push (only stage generated files)
 	commitMsg := fmt.Sprintf("gg ask: %s", truncate(prompt, 60))
 	for path := range files {
 		exec.Command("git", "add", path).Run()
@@ -1006,6 +1006,67 @@ func getCurrentRepo() string {
 func checkProTier(cfg *Config) bool {
 	return cfg.Secrets.ProLicenseKey != "" &&
 		strings.HasPrefix(cfg.Secrets.ProLicenseKey, "gg_pro_")
+}
+
+// A2A rate limiting for free tier
+const a2aFreeLimit = 10 // soft limit per day
+const a2aGraceLimit = 2 // extra grace calls
+
+type A2AUsage struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+func getA2AUsagePath() string {
+	return filepath.Join(getGGDir(), "a2a_usage.json")
+}
+
+// Returns: (allowed, inGrace, remaining)
+func checkA2ALimit(cfg *Config) (bool, bool, int) {
+	// Pro users have unlimited access
+	if checkProTier(cfg) {
+		return true, false, -1
+	}
+
+	// Load usage
+	usagePath := getA2AUsagePath()
+	today := time.Now().Format("2006-01-02")
+
+	var usage A2AUsage
+	data, err := os.ReadFile(usagePath)
+	if err == nil {
+		json.Unmarshal(data, &usage)
+	}
+
+	// Reset if new day
+	if usage.Date != today {
+		usage = A2AUsage{Date: today, Count: 0}
+	}
+
+	hardLimit := a2aFreeLimit + a2aGraceLimit
+	remaining := a2aFreeLimit - usage.Count
+	inGrace := usage.Count >= a2aFreeLimit && usage.Count < hardLimit
+
+	return usage.Count < hardLimit, inGrace, remaining
+}
+
+func incrementA2AUsage() {
+	usagePath := getA2AUsagePath()
+	today := time.Now().Format("2006-01-02")
+
+	var usage A2AUsage
+	data, err := os.ReadFile(usagePath)
+	if err == nil {
+		json.Unmarshal(data, &usage)
+	}
+
+	if usage.Date != today {
+		usage = A2AUsage{Date: today, Count: 0}
+	}
+
+	usage.Count++
+	newData, _ := json.Marshal(usage)
+	os.WriteFile(usagePath, newData, 0644)
 }
 
 func parseCodeBlocks(response string) map[string]string {
@@ -2204,7 +2265,7 @@ func formatSize(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// CLI2CLI: Agent-to-Agent modes (DOCK-030 compliant)
+// CLI2CLI: Agent-to-Agent modes
 // Design: <100 tokens output, pipeable, parseable
 func handleA2A() {
 	args := os.Args[2:]
@@ -2282,6 +2343,18 @@ func handleA2AAsk(args []string) {
 		fmt.Println("run: gg init")
 		return
 	}
+
+	// Check rate limit
+	allowed, inGrace, _ := checkA2ALimit(cfg)
+	if !allowed {
+		fmt.Println("---")
+		fmt.Println("error: rate_limit")
+		fmt.Println("message: Free tier limit reached")
+		fmt.Println("upgrade: https://ggdotdev.com/pro")
+		fmt.Println("---")
+		return
+	}
+
 	provider, model, endpoint, apiKey := getEffectiveConfig(cfg)
 	if provider == "" || (provider != ProviderOllama && apiKey == "") {
 		fmt.Println("error: not configured")
@@ -2289,6 +2362,11 @@ func handleA2AAsk(args []string) {
 		return
 	}
 	_ = model // unused but available
+
+	// Show grace warning (to stderr so it doesn't break pipes)
+	if inGrace {
+		fmt.Fprintln(os.Stderr, "warning: daily limit reached, using grace period")
+	}
 
 	// Get repo context if available
 	repoName := getCurrentRepo()
@@ -2305,6 +2383,9 @@ func handleA2AAsk(args []string) {
 		fmt.Printf("error: %v\n", err)
 		return
 	}
+
+	// Track usage (free tier)
+	incrementA2AUsage()
 
 	// Output structured response (YAML-ish frontmatter + body)
 	fmt.Println("---")
@@ -2335,11 +2416,27 @@ func handleA2APlan(args []string) {
 		fmt.Println("run: gg init")
 		return
 	}
+
+	// Check rate limit
+	allowed, inGrace, _ := checkA2ALimit(cfg)
+	if !allowed {
+		fmt.Println("---")
+		fmt.Println("error: rate_limit")
+		fmt.Println("message: Free tier limit reached")
+		fmt.Println("upgrade: https://ggdotdev.com/pro")
+		fmt.Println("---")
+		return
+	}
+
 	provider, _, endpoint, apiKey := getEffectiveConfig(cfg)
 	if provider == "" || (provider != ProviderOllama && apiKey == "") {
 		fmt.Println("error: not configured")
 		fmt.Println("run: gg init")
 		return
+	}
+
+	if inGrace {
+		fmt.Fprintln(os.Stderr, "warning: daily limit reached, using grace period")
 	}
 
 	repoName := getCurrentRepo()
@@ -2355,6 +2452,9 @@ func handleA2APlan(args []string) {
 		fmt.Printf("error: %v\n", err)
 		return
 	}
+
+	// Track usage
+	incrementA2AUsage()
 
 	fmt.Println("---")
 	fmt.Printf("mode: plan\n")
@@ -2384,11 +2484,27 @@ func handleA2ACode(args []string) {
 		fmt.Println("run: gg init")
 		return
 	}
+
+	// Check rate limit
+	allowed, inGrace, _ := checkA2ALimit(cfg)
+	if !allowed {
+		fmt.Println("---")
+		fmt.Println("error: rate_limit")
+		fmt.Println("message: Free tier limit reached")
+		fmt.Println("upgrade: https://ggdotdev.com/pro")
+		fmt.Println("---")
+		return
+	}
+
 	provider, _, endpoint, apiKey := getEffectiveConfig(cfg)
 	if provider == "" || (provider != ProviderOllama && apiKey == "") {
 		fmt.Println("error: not configured")
 		fmt.Println("run: gg init")
 		return
+	}
+
+	if inGrace {
+		fmt.Fprintln(os.Stderr, "warning: daily limit reached, using grace period")
 	}
 
 	repoName := getCurrentRepo()
@@ -2404,6 +2520,9 @@ func handleA2ACode(args []string) {
 		fmt.Printf("error: %v\n", err)
 		return
 	}
+
+	// Track usage
+	incrementA2AUsage()
 
 	fmt.Println("---")
 	fmt.Printf("mode: code\n")
