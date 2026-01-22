@@ -1,5 +1,5 @@
 {
-  "name": "gg-cli",
+  "name": "@ggdotdev/gg",
   "version": "0.9.6",
   "description": "The 2-letter agent-native git client - 98% token savings for AI agents",
   "keywords": [

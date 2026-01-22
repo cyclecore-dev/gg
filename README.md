@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh
 
 **npm:**
 ```bash
-npm install -g gg-cli
+npm install -g @ggdotdev/gg
 ```
 
 **Arch Linux (AUR):**
