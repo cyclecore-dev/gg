@@ -33,7 +33,7 @@ gg edit main.go         # AI-assisted file editing
 
 ## Commands
 
-### Core (v0.9.6)
+### Core
 
 | Command | Description | Tokens |
 |---------|-------------|--------|
@@ -73,7 +73,7 @@ gg edit main.go         # AI-assisted file editing
 | `gg prompts add <name>` | Save a prompt |
 | `gg prompts run <name>` | Execute saved prompt |
 
-### CLI2CLI: Agent-to-Agent Modes (v0.9.6)
+### CLI2CLI: Agent-to-Agent Modes
 
 Minimal, pipeable CLI modes for agent-to-agent communication. Output is structured, <100 tokens per hop.
 
@@ -120,7 +120,7 @@ gg works with multiple AI providers:
 | OpenAI | `sk-*` | gpt-4o, gpt-4-turbo |
 | Ollama | (local) | llama3, codellama, etc. |
 
-Configure via `gg init` or set in `~/.config/gg/config.toml`.
+Configure via `gg init` or set in `~/.gg/config.toml`.
 
 ## Token Savings
 
@@ -181,6 +181,6 @@ MIT — [github.com/cyclecore-dev/gg](https://github.com/cyclecore-dev/gg)
 ---
 
 gg is independent open-source software.
-Default providers and backends are configurable via `~/.gg/config.toml`.
+Providers and settings configurable via `~/.gg/config.toml`.
 Built by the CycleCore team — privacy-first AI infrastructure.
 No warranty. Use at your own risk.

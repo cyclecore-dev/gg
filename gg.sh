@@ -3,7 +3,7 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh
 set -e
 
-VERSION="v0.9.2"
+VERSION="v0.9.6.1"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 echo "Installing gg $VERSION — the 2-letter agent-native git client"

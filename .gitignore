@@ -13,29 +13,34 @@ gg_test
 .DS_Store
 Thumbs.db
 
-# Internal docs (not for public repo)
+# Docs
 docs/
 
-# Claude Code settings (contains local paths/permissions)
+# IDE/Editor
 .claude/
 
-# Ops docs (internal sprint tracking)
+# Build artifacts
 .ops/
-
-# Backend local state (wrangler dev artifacts)
 backend/.wrangler/
 backend/node_modules/
 
-# Test artifacts from gg ask
+# Test artifacts
 AddFunction
 *.cs
 *.java
 *.kt
 count_lines.sh
 
-# Archive (old versions)
+# Archive
 archive/
+backup_*/
 
-# Internal agent handoffs (CC-XX designations)
+# Demo artifacts
+demo/
+
+# Backend secrets
+backend/.dev.vars
+
+# Local files
 CC-*
 *HANDOFF*
