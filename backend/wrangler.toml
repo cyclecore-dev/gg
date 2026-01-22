@@ -1,0 +1,17 @@
+name = "gg-backend"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+ENVIRONMENT = "production"
+
+# KV namespace for license keys and usage tracking
+[[kv_namespaces]]
+binding = "GG_KV"
+id = "placeholder_kv_id"
+preview_id = "placeholder_preview_id"
+
+# Secrets (set via wrangler secret put):
+# - STRIPE_SECRET_KEY
+# - STRIPE_WEBHOOK_SECRET
+# - LICENSE_SIGNING_KEY

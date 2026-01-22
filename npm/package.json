@@ -1,0 +1,36 @@
+{
+  "name": "gg-cli",
+  "version": "0.9.6",
+  "description": "The 2-letter agent-native git client - 98% token savings for AI agents",
+  "keywords": [
+    "git",
+    "ai",
+    "agent",
+    "cli",
+    "mcp",
+    "tokens",
+    "llm",
+    "claude",
+    "openai",
+    "ollama"
+  ],
+  "homepage": "https://github.com/cyclecore-dev/gg",
+  "bugs": {
+    "url": "https://github.com/cyclecore-dev/gg/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyclecore-dev/gg.git"
+  },
+  "license": "MIT",
+  "author": "CycleCore Technologies",
+  "bin": {
+    "gg": "bin/gg"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

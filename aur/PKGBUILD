@@ -1,0 +1,24 @@
+# Maintainer: CycleCore Technologies
+pkgname=gg-bin
+pkgver=0.9.6.1
+pkgrel=1
+pkgdesc="The 2-letter agent-native git client - 98% token savings for AI agents"
+arch=('x86_64' 'aarch64')
+url="https://github.com/cyclecore-dev/gg"
+license=('MIT')
+provides=('gg')
+conflicts=('gg')
+
+source_x86_64=("https://github.com/cyclecore-dev/gg/releases/download/v${pkgver}/gg_linux_x86_64")
+source_aarch64=("https://github.com/cyclecore-dev/gg/releases/download/v${pkgver}/gg_linux_aarch64")
+
+sha256sums_x86_64=('057166c82726af6f0440ca7035259a6db7b9e715430342ef0c50e92c6bdc68ad')
+sha256sums_aarch64=('5afd69770fa5ad29b1c7d35e857574f672165c2d84d26cc3a78fd019fe3e7466')
+
+package() {
+    if [[ "$CARCH" == "x86_64" ]]; then
+        install -Dm755 "gg_linux_x86_64" "$pkgdir/usr/bin/gg"
+    elif [[ "$CARCH" == "aarch64" ]]; then
+        install -Dm755 "gg_linux_aarch64" "$pkgdir/usr/bin/gg"
+    fi
+}

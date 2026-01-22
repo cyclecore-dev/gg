@@ -17,8 +17,24 @@ Built by the CycleCore team — privacy-first AI infrastructure.
 
 ## Install
 
+**Homebrew (macOS/Linux):**
+```bash
+brew install cyclecore-dev/gg/gg
+```
+
+**curl (any platform):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh
+```
+
+**npm:**
+```bash
+npm install -g gg-cli
+```
+
+**Arch Linux (AUR):**
+```bash
+yay -S gg-bin
 ```
 
 ## Quick Start
