@@ -23,7 +23,7 @@
     "url": "git+https://github.com/cyclecore-dev/gg.git"
   },
   "license": "MIT",
-  "author": "CycleCore Technologies",
+  "author": "ggdotdev",
   "bin": {
     "gg": "bin/gg"
   },

@@ -13,7 +13,7 @@ gg is:
 - **Model-agnostic** (Anthropic, OpenAI, Ollama)
 - **Agent-first UX** (2 letters, chainable, Pro tier for unlimited ask)
 
-Built by the CycleCore team — privacy-first AI infrastructure.
+An open-source project sponsored by CycleCore Technologies.
 
 ## Install
 
@@ -198,5 +198,5 @@ MIT — [github.com/cyclecore-dev/gg](https://github.com/cyclecore-dev/gg)
 
 gg is independent open-source software.
 Providers and settings configurable via `~/.gg/config.toml`.
-Built by the CycleCore team — privacy-first AI infrastructure.
+Sponsored by CycleCore Technologies.
 No warranty. Use at your own risk.
