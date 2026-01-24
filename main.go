@@ -20,7 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const version = "0.9.6"
+const version = "0.9.6.2"
 
 // Backend URL for Pro tier management
 const defaultBackendURL = "https://gg-backend.cyclecore.workers.dev"
@@ -124,6 +124,10 @@ func main() {
 		handleCache()
 	case "a2a":
 		handleA2A()
+	case "chat":
+		handleChat()
+	case "pip":
+		handlePip()
 	case "upgrade":
 		handleUpgrade()
 	case "pro":
@@ -139,7 +143,13 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Printf("gg v%s — the 2-letter agent-native git client\n", version)
+	fmt.Printf("gg v%s — token compression for AI agents\n", version)
+	fmt.Println("Compresses git/npm/pip/brew calls to <100 tokens (vs 1,000-2,000 raw)")
+	fmt.Println()
+	fmt.Println("quick start:")
+	fmt.Println("  gg pip requests      # 18 tokens (vs ~1,200 raw)")
+	fmt.Println("  gg npm lodash        # 18 tokens (vs ~1,800 raw)")
+	fmt.Println("  gg chat \"question\"   # AI chat with gg awareness")
 	fmt.Println()
 	fmt.Println("setup:")
 	fmt.Println("  gg init              Configure provider & API key")
@@ -149,21 +159,23 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("ai tools:")
 	fmt.Println("  gg ask \"...\"         Generate code → PR (Pro)")
-	fmt.Println("  gg a2a [mode]        Agent-to-agent CLI modes (CLI2CLI)")
+	fmt.Println("  gg chat \"...\"        Human-friendly AI chat")
+	fmt.Println("  gg a2a [mode]        Agent-to-agent piping (<100 tokens/hop)")
 	fmt.Println("  gg edit <file>       AI-assisted file editing")
 	fmt.Println("  gg prompts           Manage saved prompts")
 	fmt.Println()
 	fmt.Println("git:")
-	fmt.Println("  gg .                 Current repo → MCP")
-	fmt.Println("  gg user/repo         Any GitHub repo → MCP")
+	fmt.Println("  gg .                 Current repo → minimal context")
+	fmt.Println("  gg user/repo         Any GitHub repo → minimal context")
 	fmt.Println("  gg pr <number>       View/manage specific PR")
-	fmt.Println("  gg approve           Merge the latest PR")
+	fmt.Println("  gg approve           Merge PR created by gg ask")
 	fmt.Println("  gg run <cmd>         Run command in sandbox")
 	fmt.Println()
-	fmt.Println("package manager:")
-	fmt.Println("  gg npm <pkg>         npm package → MCP (~18 tokens)")
-	fmt.Println("  gg brew [-i] <f>     Homebrew formula → MCP (~22 tokens)")
-	fmt.Println("  gg chain <tools>     Chain multiple MCPs")
+	fmt.Println("packages:")
+	fmt.Println("  gg npm <pkg>         npm → ~18 tokens (vs ~1,800 raw)")
+	fmt.Println("  gg pip <pkg>         PyPI → ~18 tokens (vs ~1,200 raw)")
+	fmt.Println("  gg brew [-i] <f>     Homebrew → ~22 tokens (vs ~800 raw)")
+	fmt.Println("  gg chain <tools>     Chain multiple lookups")
 	fmt.Println("  gg cool <toolbelt>   Curated toolbelts (webdev, media, sec, data)")
 	fmt.Println("  gg cache status      Show cache size")
 	fmt.Println()
@@ -171,6 +183,8 @@ func printUsage() {
 	fmt.Println("  gg stats             Usage statistics")
 	fmt.Println("  gg version           Show version")
 	fmt.Println("  gg help              Show this help")
+	fmt.Println()
+	fmt.Println("note: Local models (Ollama) may vary in accuracy. Use cloud APIs for best results.")
 	fmt.Println()
 	fmt.Println("install: curl -fsSL https://raw.githubusercontent.com/cyclecore-dev/gg/main/gg.sh | sh")
 	fmt.Println("docs:    github.com/cyclecore-dev/gg")
@@ -1972,6 +1986,85 @@ func handleNPM() {
 	fmt.Printf("Token cost: ~%d\n", TokenCostNPM)
 }
 
+// handlePip fetches PyPI package info and displays MCP endpoint
+func handlePip() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: gg pip <package>")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  gg pip requests")
+		fmt.Println("  gg pip numpy")
+		return
+	}
+
+	pkg := os.Args[2]
+
+	// Check local cache first
+	cacheDir := filepath.Join(getGGDir(), "cache", "pip")
+	cachePath := filepath.Join(cacheDir, pkg+".json")
+
+	var pkgInfo map[string]interface{}
+
+	if data, err := os.ReadFile(cachePath); err == nil {
+		// Cache hit
+		json.Unmarshal(data, &pkgInfo)
+		fmt.Printf("%s (cached)\n", pkg)
+	} else {
+		// Fetch from PyPI registry
+		fmt.Printf("Fetching %s from PyPI...\n", pkg)
+		url := fmt.Sprintf("https://pypi.org/pypi/%s/json", pkg)
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Printf("Failed to fetch package: %v\n", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 404 {
+			fmt.Printf("Package not found: %s\n", pkg)
+			return
+		}
+
+		if resp.StatusCode != 200 {
+			fmt.Printf("PyPI error: %d\n", resp.StatusCode)
+			return
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&pkgInfo); err != nil {
+			fmt.Printf("Failed to parse response: %v\n", err)
+			return
+		}
+
+		// Cache it
+		os.MkdirAll(cacheDir, 0755)
+		data, _ := json.Marshal(pkgInfo)
+		os.WriteFile(cachePath, data, 0644)
+	}
+
+	// Extract info from nested structure
+	info, ok := pkgInfo["info"].(map[string]interface{})
+	if !ok {
+		fmt.Println("Invalid response format")
+		return
+	}
+
+	name, _ := info["name"].(string)
+	pkgVersion, _ := info["version"].(string)
+	summary, _ := info["summary"].(string)
+	author, _ := info["author"].(string)
+
+	fmt.Printf("\n%s==%s\n", name, pkgVersion)
+	if summary != "" {
+		fmt.Printf("   %s\n", summary)
+	}
+	if author != "" {
+		fmt.Printf("   author: %s\n", author)
+	}
+
+	fmt.Printf("\nMCP Endpoint: pip:%s\n", name)
+	fmt.Printf("Token cost: ~%d\n", TokenCostNPM) // Same token cost as npm
+}
+
 // handleBrew fetches Homebrew formula info and displays MCP endpoint
 func handleBrew() {
 	if len(os.Args) < 3 {
@@ -2502,6 +2595,84 @@ func formatSize(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+// handleChat provides a human-friendly AI chat experience
+func handleChat() {
+	if len(os.Args) < 3 || os.Args[2] == "-h" || os.Args[2] == "--help" {
+		fmt.Println("Usage: gg chat \"your question\"")
+		fmt.Println()
+		fmt.Println("Human-friendly AI chat. Unlike 'gg a2a ask', this provides")
+		fmt.Println("natural conversational responses without structured output.")
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  gg chat \"how do I install dependencies?\"")
+		fmt.Println("  gg chat \"explain this error message\"")
+		return
+	}
+
+	prompt := strings.Join(os.Args[2:], " ")
+
+	// Load config
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Println("Error: not configured")
+		fmt.Println("Run: gg init")
+		return
+	}
+
+	// Check rate limit
+	allowed, inGrace, _ := checkA2ALimit(cfg) // Reuse a2a limits
+	if !allowed {
+		fmt.Println("Daily limit reached. Upgrade to Pro for unlimited: https://ggdotdev.com/pro")
+		return
+	}
+
+	provider, _, endpoint, apiKey := getEffectiveConfig(cfg)
+	if provider == "" || (provider != ProviderOllama && apiKey == "") {
+		fmt.Println("Error: not configured")
+		fmt.Println("Run: gg init")
+		return
+	}
+
+	if inGrace {
+		fmt.Println("(Using grace period - upgrade to Pro for unlimited)")
+		fmt.Println()
+	}
+
+	// Get repo context if available
+	repoName := getCurrentRepo()
+	contextPrompt := prompt
+	if repoName != "" {
+		contextPrompt = fmt.Sprintf("[Context: working in repo %s] %s", repoName, prompt)
+	}
+
+	// Human-friendly system prompt with gg awareness
+	systemPrompt := `You are a helpful coding assistant running inside gg (the 2-letter agent-native CLI).
+
+Available gg commands:
+- gg chat "..." - This conversation
+- gg ask "..." - Generate code and create PR (Pro tier)
+- gg pip/npm/brew <pkg> - Package lookup (~18 tokens)
+- gg a2a ask/plan/code - Agent-to-agent structured output
+- gg . - Current repo MCP endpoint
+- gg help - Full command list
+
+Give clear, practical answers. Be conversational but concise. If asked about gg, reference the commands above.`
+
+	fmt.Println("Thinking...")
+	fmt.Println()
+
+	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextPrompt)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	// Track usage
+	incrementA2AUsage()
+
+	fmt.Println(strings.TrimSpace(response))
+}
+
 // CLI2CLI: Agent-to-Agent modes
 // Design: <100 tokens output, pipeable, parseable
 func handleA2A() {
@@ -2613,7 +2784,8 @@ func handleA2AAsk(args []string) {
 	}
 
 	// Call API with minimal system prompt for structured output
-	systemPrompt := "Respond concisely in <100 tokens. Output structured text, no markdown formatting. Be direct."
+	// Light context awareness (not roleplay) to prevent hallucinations
+	systemPrompt := "Context: gg CLI (token compression for git/npm/pip/brew). Respond concisely in <100 tokens. Structured text, no markdown. Be direct."
 
 	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextPrompt)
 	if err != nil {
@@ -2682,7 +2854,8 @@ func handleA2APlan(args []string) {
 		contextTask = fmt.Sprintf("[repo: %s] %s", repoName, task)
 	}
 
-	systemPrompt := "Output a numbered plan (1. 2. 3. etc). Max 7 steps. No prose, just steps. Each step <15 words."
+	// Light context awareness (not roleplay)
+	systemPrompt := "Context: gg CLI. Output a numbered plan (1. 2. 3. etc). Max 7 steps. No prose, just steps. Each step <15 words."
 
 	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextTask)
 	if err != nil {
@@ -2750,7 +2923,8 @@ func handleA2ACode(args []string) {
 		contextTask = fmt.Sprintf("[repo: %s] %s", repoName, task)
 	}
 
-	systemPrompt := "Output ONLY code. No explanations, no markdown fences, just raw code. If multiple files, separate with: // FILE: filename.ext"
+	// Light context awareness (not roleplay)
+	systemPrompt := "Context: gg CLI. Output ONLY code. No explanations, no markdown fences, just raw code. If multiple files, separate with: // FILE: filename.ext"
 
 	response, err := callAPIWithSystem(provider, endpoint, apiKey, systemPrompt, contextTask)
 	if err != nil {

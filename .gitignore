@@ -44,3 +44,5 @@ backend/.dev.vars
 # Local files
 CC-*
 *HANDOFF*
+test/
+homebrew-tap/

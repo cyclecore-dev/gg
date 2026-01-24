@@ -34,9 +34,9 @@ function isValidLicenseFormat(key: string): boolean {
   return /^gg_pro_[a-f0-9]{16}_[a-f0-9]{8}$/.test(key);
 }
 
-// CORS headers
+// CORS headers - restricted to ggdotdev.com
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://ggdotdev.com',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
