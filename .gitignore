@@ -1,0 +1,53 @@
+# Binaries
+releases/
+gg
+gg_test
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+docs/
+
+# IDE/Editor
+.claude/
+
+# Build artifacts
+.ops/
+backend/.wrangler/
+backend/node_modules/
+
+# Test artifacts
+AddFunction
+*.cs
+*.java
+*.kt
+count_lines.sh
+
+# Archive
+archive/
+backup_*/
+
+# Demo artifacts
+demo/
+
+# Backend secrets
+backend/.dev.vars
+
+# Local files
+CC-*
+*HANDOFF*
+test/
+homebrew-tap/
+
+# Internal docs
+ops/
+specs/
+src/

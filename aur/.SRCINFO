@@ -1,0 +1,16 @@
+pkgbase = gg-bin
+	pkgdesc = The 2-letter agent-native git client - 98% token savings for AI agents
+	pkgver = 0.10.0
+	pkgrel = 1
+	url = https://github.com/cyclecore-dev/gg
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	provides = gg
+	conflicts = gg
+	source_x86_64 = https://github.com/cyclecore-dev/gg/releases/download/v0.10.0/gg_linux_x86_64
+	sha256sums_x86_64 = d5c3367430fe8ed32d6888eb8c53d54e9c4f6e36afc52c621be6bc68f6b2ad64
+	source_aarch64 = https://github.com/cyclecore-dev/gg/releases/download/v0.10.0/gg_linux_aarch64
+	sha256sums_aarch64 = 11e4c554fa6f4cdd7dba8cf5769b4d0de0e5e613209f167bb9b41f226e6782de
+
+pkgname = gg-bin
