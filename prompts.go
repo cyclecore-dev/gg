@@ -82,6 +82,7 @@ func listPrompts() {
 }
 
 func savePrompt(name, text string) {
+	name = filepath.Base(name)
 	promptsDir := getPromptsDir()
 	os.MkdirAll(promptsDir, 0755)
 
@@ -93,6 +94,7 @@ func savePrompt(name, text string) {
 }
 
 func usePrompt(name string) {
+	name = filepath.Base(name)
 	promptsDir := getPromptsDir()
 	path := filepath.Join(promptsDir, name+".txt")
 
@@ -112,6 +114,7 @@ func usePrompt(name string) {
 }
 
 func deletePrompt(name string) {
+	name = filepath.Base(name)
 	promptsDir := getPromptsDir()
 	path := filepath.Join(promptsDir, name+".txt")
 

@@ -21,8 +21,7 @@ func handleRun() {
 	fmt.Printf("Running: %s\n", cmdStr)
 	fmt.Println()
 
-	// Execute command with timeout
-	cmd := exec.Command("sh", "-c", cmdStr)
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

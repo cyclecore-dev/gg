@@ -75,7 +75,7 @@ func callAnthropicStreaming(apiKey, model, systemPrompt, prompt string, temperat
 
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes))
+		return "", sanitizeError(fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes)))
 	}
 
 	// Parse SSE stream
@@ -172,7 +172,7 @@ func callOpenAIStreaming(apiKey, model, systemPrompt, prompt string) (string, er
 
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes))
+		return "", sanitizeError(fmt.Errorf("API error (%d): %s", resp.StatusCode, string(bodyBytes)))
 	}
 
 	// Parse SSE stream
@@ -263,13 +263,13 @@ func callOllamaStreaming(endpoint, model, systemPrompt, prompt string) (string, 
 	client := &http.Client{Timeout: 600 * time.Second} // Ollama can be slow
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama connection failed: %v (is Ollama running?)", err)
+		return "", sanitizeError(fmt.Errorf("Ollama connection failed: %v (is Ollama running?)", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Ollama error (%d): %s", resp.StatusCode, string(bodyBytes))
+		return "", sanitizeError(fmt.Errorf("Ollama error (%d): %s", resp.StatusCode, string(bodyBytes)))
 	}
 
 	// Ollama returns newline-delimited JSON

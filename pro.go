@@ -60,10 +60,10 @@ func handleUpgrade() {
 
 	if errMsg, ok := result["error"].(string); ok {
 		if licenseKey, hasKey := result["license_key"].(string); hasKey {
-			fmt.Printf("Already subscribed! Your license key: %s\n", licenseKey)
+			redacted := redactLicenseKey(licenseKey)
+			fmt.Printf("Already subscribed! Your license key: %s\n", redacted)
 			fmt.Println()
-			fmt.Println("Add to ~/.gg/config.toml:")
-			fmt.Printf("  pro_license_key = \"%s\"\n", licenseKey)
+			fmt.Println("Run 'gg pro --activate' to configure your key.")
 			return
 		}
 		fmt.Printf("Error: %s\n", errMsg)
@@ -173,11 +173,10 @@ func activateProLicense(cfg *Config) {
 		ggDir := filepath.Join(homeDir, ".gg")
 		configPath := filepath.Join(ggDir, "config.toml")
 
-		f, err := os.Create(configPath)
+		f, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			fmt.Printf("Failed to save config: %v\n", err)
-			fmt.Printf("Manually add to ~/.gg/config.toml:\n")
-			fmt.Printf("  pro_license_key = \"%s\"\n", licenseKey)
+			fmt.Println("Run 'gg pro --activate' again to retry.")
 			return
 		}
 		defer f.Close()
@@ -200,7 +199,7 @@ func activateProLicense(cfg *Config) {
 
 		fmt.Println()
 		fmt.Println("Pro activated!")
-		fmt.Printf("License: %s\n", licenseKey)
+		fmt.Printf("License: %s\n", redactLicenseKey(licenseKey))
 		fmt.Println()
 		fmt.Println("You now have unlimited access to:")
 		fmt.Println("  - gg ask")
@@ -240,6 +239,13 @@ func openCustomerPortal(cfg *Config) {
 	} else if errMsg, ok := result["error"].(string); ok {
 		fmt.Printf("Error: %s\n", errMsg)
 	}
+}
+
+func redactLicenseKey(key string) string {
+	if len(key) > 16 {
+		return key[:12] + "..." + key[len(key)-4:]
+	}
+	return "gg_pro_***"
 }
 
 // A2A rate limiting for free tier

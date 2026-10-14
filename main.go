@@ -1,5 +1,5 @@
-// gg v0.10.0 — the 2-letter agent-native git client
-// August 2026 — 12 new commands, modular architecture
+// gg v0.10.1 — the 2-letter agent-native git client
+// October 2026 — security hardening
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 )
 
 
-const version = "0.10.0"
+const version = "0.10.1"
 
 // Backend URL for Pro tier management
 const defaultBackendURL = "https://gg-backend.cyclecore.workers.dev"
