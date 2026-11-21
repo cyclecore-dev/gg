@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,29 +9,37 @@ import (
 	"strings"
 )
 
-func handleLog() {
-	count := "10"
-	showStat := false
-	author := ""
+type LogCommit struct {
+	Hash   string `json:"hash"`
+	Message string `json:"message"`
+	Stat   string `json:"stat,omitempty"`
+}
 
-	for _, arg := range os.Args[2:] {
-		switch {
-		case arg == "--stat":
-			showStat = true
-		case strings.HasPrefix(arg, "--author="):
-			author = strings.TrimPrefix(arg, "--author=")
-		case arg == "--help" || arg == "-h":
-			fmt.Println("Usage: gg log [count] [--stat] [--author=name]")
-			fmt.Println("\nOptions:")
-			fmt.Println("  count        Number of commits (default: 10)")
-			fmt.Println("  --stat       Include change counts per commit")
-			fmt.Println("  --author=X   Filter by author name")
-			fmt.Println("\nOutput:")
-			fmt.Println("  10 commits:")
-			fmt.Println("    a1b2c3d fix auth middleware")
-			fmt.Println("    b3c4d5e add login flow (+15 -0 1f)")
-			return
-		default:
+type LogReport struct {
+	Count   int         `json:"count"`
+	Commits []LogCommit `json:"commits"`
+}
+
+func handleLog() {
+	if hasFlag("--help") || hasFlag("-h") {
+		fmt.Println("Usage: gg log [count] [--stat] [--author=name] [--json] [--max-tokens N]")
+		fmt.Println("\nOptions:")
+		fmt.Println("  count        Number of commits (default: 10)")
+		fmt.Println("  --stat       Include change counts per commit")
+		fmt.Println("  --author=X   Filter by author name")
+		fmt.Println("  --json       structured output")
+		fmt.Println("  --max-tokens truncate")
+		return
+	}
+
+	count := "10"
+	showStat := hasFlag("--stat")
+	author := getFlagValue("--author")
+	if author == "" {
+		for _, arg := range os.Args[2:] {
+			if strings.HasPrefix(arg, "--author=") {
+				author = strings.TrimPrefix(arg, "--author=")
+			}
 			if _, err := strconv.Atoi(arg); err == nil {
 				count = arg
 			}
@@ -48,59 +57,76 @@ func handleLog() {
 	cmd := exec.Command("git", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		fmt.Println("Not a git repository")
+		emit("Not a git repository", `{"error":"not a git repository"}`)
 		return
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
-		fmt.Println("No commits")
+		emit("No commits", `{"count":0,"commits":[]}`)
 		return
 	}
+
+	var commits []LogCommit
+	var plain strings.Builder
 
 	if !showStat {
-		commitCount := len(lines)
-		fmt.Printf("%d commits:\n", commitCount)
 		for _, line := range lines {
-			if len(line) > 67 {
-				line = line[:67] + "..."
+			if line == "" {
+				continue
 			}
-			fmt.Printf("  %s\n", line)
+			parts := strings.SplitN(line, " ", 2)
+			hash := parts[0]
+			msg := ""
+			if len(parts) > 1 {
+				msg = parts[1]
+			}
+			if len(msg) > 60 {
+				msg = msg[:60] + "..."
+			}
+			commits = append(commits, LogCommit{Hash: hash, Message: msg})
+			fmt.Fprintf(&plain, "  %s %s\n", hash, msg)
 		}
-		return
+	} else {
+		var current string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if strings.Contains(trimmed, "file") && strings.Contains(trimmed, "changed") {
+				stat := parseStat(trimmed)
+				parts := strings.SplitN(current, " ", 2)
+				hash, msg := parts[0], ""
+				if len(parts) > 1 {
+					msg = parts[1]
+				}
+				commits = append(commits, LogCommit{Hash: hash, Message: msg, Stat: stat})
+				fmt.Fprintf(&plain, "  %s %s %s\n", hash, msg, stat)
+				current = ""
+			} else {
+				current = trimmed
+			}
+		}
+		if current != "" {
+			parts := strings.SplitN(current, " ", 2)
+			hash, msg := parts[0], ""
+			if len(parts) > 1 {
+				msg = parts[1]
+			}
+			commits = append(commits, LogCommit{Hash: hash, Message: msg})
+			fmt.Fprintf(&plain, "  %s %s\n", hash, msg)
+		}
 	}
 
-	var commits []string
-	var currentCommit string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if strings.Contains(trimmed, "file") && strings.Contains(trimmed, "changed") {
-			stat := parseStat(trimmed)
-			commits = append(commits, currentCommit+" "+stat)
-		} else {
-			currentCommit = trimmed
-		}
-	}
-	if currentCommit != "" && (len(commits) == 0 || !strings.HasPrefix(commits[len(commits)-1], currentCommit)) {
-		commits = append(commits, currentCommit)
-	}
-
-	fmt.Printf("%d commits:\n", len(commits))
-	for _, c := range commits {
-		if len(c) > 80 {
-			c = c[:80] + "..."
-		}
-		fmt.Printf("  %s\n", c)
-	}
+	report := LogReport{Count: len(commits), Commits: commits}
+	header := fmt.Sprintf("%d commits:\n", len(commits))
+	jb, _ := json.Marshal(report)
+	emit(header+plain.String(), string(jb))
 }
 
 func parseStat(line string) string {
-	ins := 0
-	del := 0
-	files := 0
+	ins, del, files := 0, 0, 0
 	parts := strings.Split(line, ",")
 	for _, p := range parts {
 		p = strings.TrimSpace(p)

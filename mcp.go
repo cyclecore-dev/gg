@@ -96,6 +96,51 @@ func mcpParamFloat(p map[string]interface{}, key string) float64 {
 }
 
 var mcpTools = []mcpTool{
+	// --- System ---
+	{
+		info: mcpToolInfo{Name: "gg_health", Description: "Health check: version, git availability, repo status, config (<15 tokens)", InputSchema: mcpSchema(map[string]interface{}{
+			"json": mcpBool("Return full JSON report"),
+		})},
+		toArgs: func(p map[string]interface{}) []string {
+			args := []string{"health"}
+			if mcpParamBool(p, "json") {
+				args = append(args, "--json")
+			}
+			return args
+		},
+	},
+	{
+		info: mcpToolInfo{Name: "gg_verify", Description: "One-line test/lint/build summary — complements gg ask (<15 tokens)", InputSchema: mcpSchema(map[string]interface{}{
+			"build":   mcpBool("Include build step"),
+			"no_lint": mcpBool("Skip lint step"),
+		})},
+		toArgs: func(p map[string]interface{}) []string {
+			args := []string{"verify"}
+			if mcpParamBool(p, "build") {
+				args = append(args, "--build")
+			}
+			if mcpParamBool(p, "no_lint") {
+				args = append(args, "--no-lint")
+			}
+			return args
+		},
+	},
+	{
+		info: mcpToolInfo{Name: "gg_why", Description: "Compressed causal summary for a symbol, file:line, or error — replaces blame+log+grep+test (<35 tokens)", InputSchema: mcpSchema(map[string]interface{}{
+			"query": mcpStr("Symbol name, file:line reference, or error snippet to investigate"),
+			"json":  mcpBool("Return full JSON report"),
+		})},
+		toArgs: func(p map[string]interface{}) []string {
+			args := []string{"why"}
+			if q := mcpParamStr(p, "query"); q != "" {
+				args = append(args, q)
+			}
+			if mcpParamBool(p, "json") {
+				args = append(args, "--json")
+			}
+			return args
+		},
+	},
 	// --- Git ---
 	{
 		info: mcpToolInfo{Name: "gg_snap", Description: "One-line project state: branch, hash, commit message, status, ahead/behind (<20 tokens)", InputSchema: mcpNoParams()},

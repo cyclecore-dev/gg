@@ -1,11 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 )
+
+type SnapReport struct {
+	Branch   string `json:"branch"`
+	Hash     string `json:"hash"`
+	Message  string `json:"message"`
+	Status   string `json:"status"`
+	Upstream string `json:"upstream"`
+	Clean    bool   `json:"clean"`
+}
 
 func gitOutput(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
@@ -15,12 +25,12 @@ func gitOutput(args ...string) (string, error) {
 
 func handleSnap() {
 	if _, err := gitOutput("rev-parse", "--git-dir"); err != nil {
-		fmt.Println("Not a git repository")
+		emit("Not a git repository", `{"error":"not a git repository"}`)
 		return
 	}
 
-	branch, err := gitOutput("rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
+	branch, _ := gitOutput("rev-parse", "--abbrev-ref", "HEAD")
+	if branch == "" {
 		branch = "unknown"
 	}
 
@@ -36,33 +46,29 @@ func handleSnap() {
 			msg = parts[1]
 		}
 	}
-
 	if len(msg) > 40 {
 		msg = msg[:40] + "..."
 	}
 
-	status, err := gitOutput("status", "--porcelain")
+	status, _ := gitOutput("status", "--porcelain")
 	var modified, untracked, staged, deleted int
-	if err == nil {
-		lines := strings.Split(status, "\n")
-		for _, line := range lines {
-			if len(line) < 2 {
-				continue
-			}
-			c0 := line[0]
-			c1 := line[1]
-			if c1 == 'M' {
-				modified++
-			}
-			if c1 == '?' {
-				untracked++
-			}
-			if c0 == 'A' {
-				staged++
-			}
-			if c0 == 'D' {
-				deleted++
-			}
+	lines := strings.Split(status, "\n")
+	for _, line := range lines {
+		if len(line) < 2 {
+			continue
+		}
+		c0, c1 := line[0], line[1]
+		if c1 == 'M' {
+			modified++
+		}
+		if c1 == '?' {
+			untracked++
+		}
+		if c0 == 'A' {
+			staged++
+		}
+		if c0 == 'D' {
+			deleted++
 		}
 	}
 
@@ -79,11 +85,11 @@ func handleSnap() {
 	if deleted > 0 {
 		parts = append(parts, fmt.Sprintf("%d deleted", deleted))
 	}
-	var statusStr string
-	if len(parts) == 0 {
-		statusStr = "clean"
-	} else {
+	statusStr := "clean"
+	clean := true
+	if len(parts) > 0 {
 		statusStr = strings.Join(parts, ", ")
+		clean = false
 	}
 
 	upstreamStr := "no upstream"
@@ -97,5 +103,15 @@ func handleSnap() {
 		}
 	}
 
-	fmt.Printf("%s @ %s \"%s\" | %s | %s\n", branch, hash, msg, statusStr, upstreamStr)
+	plain := fmt.Sprintf("%s @ %s \"%s\" | %s | %s", branch, hash, msg, statusStr, upstreamStr)
+	report := SnapReport{
+		Branch:   branch,
+		Hash:     hash,
+		Message:  msg,
+		Status:   statusStr,
+		Upstream: upstreamStr,
+		Clean:    clean,
+	}
+	jb, _ := json.Marshal(report)
+	emit(plain, string(jb))
 }

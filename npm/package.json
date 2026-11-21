@@ -1,6 +1,6 @@
 {
   "name": "@ggdotdev/gg",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Token compression for AI agents - 98% fewer tokens on git/npm/pip/brew calls",
   "keywords": [
     "git",

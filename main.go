@@ -1,5 +1,5 @@
-// gg v0.10.1 — the 2-letter agent-native git client
-// October 2026 — security hardening
+// gg v0.10.2 — the 2-letter agent-native git client
+// November 2026 — structured output + causal analysis
 package main
 
 import (
@@ -9,7 +9,7 @@ import (
 )
 
 
-const version = "0.10.1"
+const version = "0.10.2"
 
 // Backend URL for Pro tier management
 const defaultBackendURL = "https://gg-backend.cyclecore.workers.dev"
@@ -207,6 +207,14 @@ func main() {
 		handleComposer()
 	case "mcp":
 		handleMCP()
+	case "health":
+		handleHealth()
+	case "ensure":
+		handleEnsure()
+	case "verify":
+		handleVerify()
+	case "why":
+		handleWhy()
 	case "upgrade":
 		handleUpgrade()
 	case "pro":
@@ -278,6 +286,8 @@ func printUsage() {
 	fmt.Println("  gg clone <url>       Compressed clone output (~8 tokens)")
 	fmt.Println("  gg remote [sub]      Remote list/add/remove (~10 tokens)")
 	fmt.Println("  gg run <cmd>         Run command in sandbox")
+	fmt.Println("  gg verify [--build]  One-line test/lint/build (~10 tokens)")
+	fmt.Println("  gg why <query>       Compressed causal summary (~35 tokens)")
 	fmt.Println()
 	fmt.Println("packages:")
 	fmt.Println("  gg npm <pkg>         npm → ~18 tokens (vs ~1,800 raw)")
@@ -305,6 +315,8 @@ func printUsage() {
 	fmt.Println("  gg time [--iso|utc]  Time HUD for agents")
 	fmt.Println("  gg mcp               Start MCP tool server (for Claude Desktop, Cursor, etc)")
 	fmt.Println("  gg stats             Usage statistics")
+	fmt.Println("  gg health            Health check for extensions (~15 tokens)")
+	fmt.Println("  gg ensure            Version handshake for plugins")
 	fmt.Println("  gg version           Show version")
 	fmt.Println("  gg help              Show this help")
 	fmt.Println()

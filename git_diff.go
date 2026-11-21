@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,14 +13,23 @@ func handleDiff() {
 	var diffArgs []string
 	mode := "default"
 
+	skipNext := false
 	for _, arg := range os.Args[2:] {
+		if skipNext {
+			skipNext = false
+			continue
+		}
 		switch arg {
 		case "--staged":
 			mode = "staged"
 		case "--all":
 			mode = "all"
+		case "--json":
+			// handled by flags.go
+		case "--max-tokens":
+			skipNext = true
 		case "--help", "-h":
-			fmt.Println("Usage: gg diff [--staged|--all|<ref>]")
+			fmt.Println("Usage: gg diff [--staged|--all|<ref>] [--json] [--max-tokens N]")
 			fmt.Println("")
 			fmt.Println("Modes:")
 			fmt.Println("  (default)    Unstaged changes")
@@ -151,15 +161,30 @@ func handleDiff() {
 		shown = shown[:limit]
 	}
 
-	fmt.Printf("%d files | +%d -%d\n", len(stats), totalAdd, totalDel)
+	var plain strings.Builder
+	fmt.Fprintf(&plain, "%d files | +%d -%d\n", len(stats), totalAdd, totalDel)
 	for _, f := range shown {
 		if f.stat.Type == "R" {
-			fmt.Printf("  R %s → %s (+%d -%d)\n", f.stat.Old, f.stat.New, f.stat.Add, f.stat.Del)
+			fmt.Fprintf(&plain, "  R %s → %s (+%d -%d)\n", f.stat.Old, f.stat.New, f.stat.Add, f.stat.Del)
 		} else {
-			fmt.Printf("  %s %s (+%d -%d)\n", f.stat.Type, f.path, f.stat.Add, f.stat.Del)
+			fmt.Fprintf(&plain, "  %s %s (+%d -%d)\n", f.stat.Type, f.path, f.stat.Add, f.stat.Del)
 		}
 	}
 	if len(stats) > limit {
-		fmt.Printf("  ... and %d more files\n", len(stats)-limit)
+		fmt.Fprintf(&plain, "  ... and %d more files\n", len(stats)-limit)
 	}
+
+	type diffFile struct {
+		Path string `json:"path"`
+		Add  int    `json:"add"`
+		Del  int    `json:"del"`
+		Type string `json:"type"`
+	}
+	var dfiles []diffFile
+	for _, f := range files {
+		dfiles = append(dfiles, diffFile{Path: f.path, Add: f.stat.Add, Del: f.stat.Del, Type: f.stat.Type})
+	}
+	jrep := map[string]interface{}{"files": dfiles, "add": totalAdd, "del": totalDel, "count": len(stats)}
+	jb, _ := json.Marshal(jrep)
+	emit(plain.String(), string(jb))
 }

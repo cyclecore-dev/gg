@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,13 +9,26 @@ import (
 )
 
 type StatusFile struct {
-	Status   string
-	Filename string
+	Status   string `json:"status"`
+	Filename string `json:"path"`
+}
+
+type StatusReport struct {
+	Clean  bool         `json:"clean"`
+	Branch string       `json:"branch,omitempty"`
+	Files  []StatusFile `json:"files"`
+	Count  int          `json:"count"`
 }
 
 func handleStatus() {
-	if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
+	if hasFlag("--help") || hasFlag("-h") {
 		printStatusUsage()
+		return
+	}
+
+	// delta mode (from earlier stub)
+	if hasFlag("--delta") {
+		handleStatusDelta()
 		return
 	}
 
@@ -26,31 +40,54 @@ func handleStatus() {
 	}
 
 	raw := string(output)
-	if strings.TrimSpace(raw) == "" {
-		fmt.Println("  clean — nothing to commit")
-		fmt.Println("  Token cost: ~4")
-		return
-	}
+	branch, _ := gitOutput("rev-parse", "--abbrev-ref", "HEAD")
 
-	groups := statusParse(raw)
-	
-	totalFiles := 0
-	
-	// Print groups in order
-	printGroup := func(name string, files []StatusFile) {
-		if len(files) > 0 {
-			statusPrintGroup(name, files)
-			totalFiles += len(files)
+	var files []StatusFile
+	if strings.TrimSpace(raw) != "" {
+		groups := statusParse(raw)
+		for _, g := range []string{"staged", "modified", "untracked", "deleted", "conflicted"} {
+			for _, f := range groups[g] {
+				files = append(files, f)
+			}
 		}
 	}
 
-	printGroup("staged", groups["staged"])
-	printGroup("modified", groups["modified"])
-	printGroup("untracked", groups["untracked"])
-	printGroup("deleted", groups["deleted"])
-	printGroup("conflicted", groups["conflicted"])
+	report := StatusReport{
+		Clean:  len(files) == 0,
+		Branch: branch,
+		Files:  files,
+		Count:  len(files),
+	}
 
-	fmt.Printf("\n%d files | Token cost: ~%d\n", totalFiles, totalFiles)
+	// plain text
+	var plain strings.Builder
+	if report.Clean {
+		plain.WriteString("  clean — nothing to commit\n  Token cost: ~4")
+	} else {
+		groups := statusParse(raw)
+		order := []string{"staged", "modified", "untracked", "deleted", "conflicted"}
+		for _, name := range order {
+			fs := groups[name]
+			if len(fs) == 0 {
+				continue
+			}
+			fmt.Fprintf(&plain, "\n  %s (%d):\n", name, len(fs))
+			limit := 10
+			if len(fs) < limit {
+				limit = len(fs)
+			}
+			for i := 0; i < limit; i++ {
+				fmt.Fprintf(&plain, "    %s  %s\n", fs[i].Status, fs[i].Filename)
+			}
+			if len(fs) > 10 {
+				fmt.Fprintf(&plain, "    ... and %d more\n", len(fs)-10)
+			}
+		}
+		fmt.Fprintf(&plain, "\n%d files | Token cost: ~%d", report.Count, report.Count)
+	}
+
+	jsonBytes, _ := json.Marshal(report)
+	emit(plain.String(), string(jsonBytes))
 }
 
 func statusParse(raw string) map[string][]StatusFile {
@@ -69,7 +106,7 @@ func statusParse(raw string) map[string][]StatusFile {
 		}
 		xy := line[:2]
 		filename := strings.TrimSpace(line[3:])
-		
+
 		if strings.ContainsAny(xy, "U") {
 			groups["conflicted"] = append(groups["conflicted"], StatusFile{Status: "U", Filename: filename})
 		} else if strings.ContainsAny(string(xy[0]), "AMDR") {
@@ -85,26 +122,10 @@ func statusParse(raw string) map[string][]StatusFile {
 	return groups
 }
 
-func statusPrintGroup(name string, files []StatusFile) {
-	count := len(files)
-	fmt.Printf("\n  %s (%d):\n", name, count)
-	
-	limit := 10
-	if count < limit {
-		limit = count
-	}
-
-	for i := 0; i < limit; i++ {
-		fmt.Printf("    %s  %s\n", files[i].Status, files[i].Filename)
-	}
-
-	if count > 10 {
-		fmt.Printf("    ... and %d more\n", count-10)
-	}
-}
-
 func printStatusUsage() {
-	fmt.Println("Usage: gg status [--help|-h]")
+	fmt.Println("Usage: gg status [--delta] [--json] [--max-tokens N]")
 	fmt.Println("  Shows file-level status grouped by state.")
-	fmt.Println("  Example: gg status")
+	fmt.Println("  --delta       only changes since last call")
+	fmt.Println("  --json        structured output")
+	fmt.Println("  --max-tokens  truncate output")
 }
