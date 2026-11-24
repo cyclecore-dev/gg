@@ -49,10 +49,14 @@ func truncate(s string, max int) string {
 func sanitizeError(err error) error {
 	msg := err.Error()
 	// Sanitize various API key formats
-	msg = regexp.MustCompile(`sk-ant-[a-zA-Z0-9-]+`).ReplaceAllString(msg, "sk-***")
-	msg = regexp.MustCompile(`sk-[a-zA-Z0-9]+`).ReplaceAllString(msg, "sk-***")
-	msg = regexp.MustCompile(`mcpb_[a-zA-Z0-9]+`).ReplaceAllString(msg, "mcpb_***")
-	msg = regexp.MustCompile(`gg_pro_[a-zA-Z0-9]+`).ReplaceAllString(msg, "gg_pro_***")
+	msg = regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]+`).ReplaceAllString(msg, "sk-***")
+	msg = regexp.MustCompile(`sk-[a-zA-Z0-9_-]+`).ReplaceAllString(msg, "sk-***")
+	msg = regexp.MustCompile(`mcpb_[a-zA-Z0-9_-]+`).ReplaceAllString(msg, "mcpb_***")
+	msg = regexp.MustCompile(`gg_pro_[a-zA-Z0-9_-]+`).ReplaceAllString(msg, "gg_pro_***")
+	msg = regexp.MustCompile(`ghp_[a-zA-Z0-9]+`).ReplaceAllString(msg, "ghp_***")
+	msg = regexp.MustCompile(`ghs_[a-zA-Z0-9]+`).ReplaceAllString(msg, "ghs_***")
+	msg = regexp.MustCompile(`github_pat_[a-zA-Z0-9_]+`).ReplaceAllString(msg, "github_pat_***")
+	msg = regexp.MustCompile(`Bearer\s+[a-zA-Z0-9_.-]+`).ReplaceAllString(msg, "Bearer ***")
 	return fmt.Errorf("%s", msg)
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -20,6 +21,18 @@ func handleEdit() {
 	}
 
 	filePath := os.Args[2]
+
+	cwd, _ := os.Getwd()
+	cleaned := filepath.Clean(filePath)
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		fatalError("Path outside repository: "+filePath, nil)
+	}
+	full := filepath.Join(cwd, cleaned)
+	if !strings.HasPrefix(full, cwd) {
+		fatalError("Path outside repository: "+filePath, nil)
+	}
+	filePath = cleaned
+
 	var instruction string
 	if len(os.Args) > 3 {
 		instruction = strings.Join(os.Args[3:], " ")
